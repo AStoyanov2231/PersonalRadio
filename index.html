@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio Player</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="player">
+            <h1>Browse</h1>
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="Search stations...">
+            </div>
+            <!-- Radio list will be populated dynamically -->
+            <div class="radio-list"></div>
+            <div class="now-playing">
+                <div class="now-playing-info">
+                    <p id="currentRadio"></p>
+                    <p id="radioDescription" class="description"></p>
+                </div>
+                <div class="controls">
+                    <button id="playPauseBtn" class="play-pause-btn">
+                        <span class="play-icon">▶</span>
+                        <span class="pause-icon hidden">⏸</span>
+                    </button>
+                </div>
+                <div class="status">
+                    <p id="statusText">Select a station to play</p>
+                </div>
+            </div>
+            <nav class="bottom-nav">
+                <button class="nav-btn active">
+                    <span class="nav-icon">📻</span>
+                    <span>Your Songs</span>
+                </button>
+                <button class="nav-btn">
+                    <span class="nav-icon">❤️</span>
+                    <span>Favorites</span>
+                </button>
+                <button class="nav-btn">
+                    <span class="nav-icon">🔍</span>
+                    <span>Discover</span>
+                </button>
+            </nav>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html> 
