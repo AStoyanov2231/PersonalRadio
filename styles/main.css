@@ -1,0 +1,28 @@
+/* Main CSS file that imports all components */
+
+/* Base styles and reset */
+@import 'base.css';
+
+/* Search and upload components */
+@import 'search.css';
+
+/* Filter components */
+@import 'filters.css';
+
+/* List and item components */
+@import 'lists.css';
+
+/* Player controls */
+@import 'player.css';
+
+/* Navigation */
+@import 'navigation.css';
+
+/* View-specific styles */
+@import 'views.css';
+
+/* Messages and empty states */
+@import 'messages.css';
+
+/* Responsive design */
+@import 'responsive.css'; 

@@ -1,0 +1,418 @@
+/* Filter controls styling */
+.filter-controls {
+    margin: 10px 0;
+    padding: 8px 12px;
+    background: rgba(30, 30, 30, 0.5);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.filter-section {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.filter-section select {
+    flex: 1;
+    min-width: 130px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    background-color: rgba(50, 50, 50, 0.8);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 14px;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='white'%3E%3Cpath d='M6 9L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px;
+}
+
+.filter-section select option {
+    background-color: #222;
+}
+
+.filter-btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    background-color: #444;
+    color: white;
+    border: none;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.filter-btn:hover {
+    background-color: #555;
+}
+
+#applyFilters {
+    background-color: #1db954;
+}
+
+#applyFilters:hover {
+    background-color: #1ed760;
+}
+
+#resetFilters {
+    background-color: #555;
+}
+
+/* Filter button in search bar */
+.filter-button {
+    background: none;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    cursor: pointer;
+    position: relative;
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    margin-left: 8px;
+    transition: background-color 0.2s;
+}
+
+.filter-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.filter-indicator {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: transparent;
+}
+
+.filter-indicator.active {
+    background-color: #1db954;
+}
+
+/* Filter modal */
+.filter-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s, visibility 0.3s;
+}
+
+.filter-modal-overlay.open {
+    opacity: 1;
+    visibility: visible;
+}
+
+.filter-modal {
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    background-color: #222;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    transform: translateY(20px);
+    transition: transform 0.3s;
+}
+
+.filter-modal-overlay.open .filter-modal {
+    transform: translateY(0);
+}
+
+.filter-modal-header {
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.filter-modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+    color: white;
+}
+
+.close-modal-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+}
+
+.close-modal-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.filter-modal-content {
+    padding: 16px;
+    overflow-y: auto;
+    max-height: calc(90vh - 140px);
+}
+
+/* Simplified filter sections with tabs */
+.filter-tabs {
+    display: flex;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 20px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+}
+
+.filter-tabs::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Edge */
+}
+
+.filter-tab {
+    padding: 10px 16px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    position: relative;
+}
+
+.filter-tab.active {
+    color: #1db954;
+}
+
+.filter-tab::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background-color: #1db954;
+    transform: scaleX(0);
+    transition: transform 0.2s;
+}
+
+.filter-tab.active::after {
+    transform: scaleX(1);
+}
+
+/* Tab content container */
+.tab-content {
+    display: none;
+    margin-bottom: 16px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Simplified filter chips */
+.filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.filter-chip {
+    background-color: rgba(50, 50, 50, 0.8);
+    color: white;
+    padding: 10px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-chip:hover {
+    background-color: rgba(70, 70, 70, 0.8);
+    transform: translateY(-2px);
+}
+
+.filter-chip.selected {
+    background-color: #1db954;
+    color: white;
+    box-shadow: 0 2px 8px rgba(29, 185, 84, 0.3);
+}
+
+/* Toggle switch for geolocation */
+.toggle-container {
+    margin: 20px 0;
+}
+
+.toggle-switch {
+    display: flex;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.toggle-switch input[type="checkbox"] {
+    height: 0;
+    width: 0;
+    visibility: hidden;
+    position: absolute;
+}
+
+.toggle-switch label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    color: white;
+}
+
+.toggle-switch label::before {
+    content: '';
+    width: 50px;
+    height: 24px;
+    background: #444;
+    border-radius: 24px;
+    display: inline-block;
+    position: relative;
+    transition: 0.3s;
+}
+
+.toggle-switch label::after {
+    content: '';
+    width: 20px;
+    height: 20px;
+    background: #fff;
+    border-radius: 50%;
+    position: absolute;
+    left: 2px;
+    transition: 0.3s;
+}
+
+.toggle-switch input:checked + label::before {
+    background: #1db954;
+}
+
+.toggle-switch input:checked + label::after {
+    left: 28px;
+}
+
+/* Radio buttons for sort options */
+.sort-options {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.sort-option {
+    flex: 1;
+    min-width: 100px;
+    background-color: rgba(50, 50, 50, 0.8);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+.sort-option input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.sort-option label {
+    display: block;
+    padding: 12px;
+    text-align: center;
+    font-size: 14px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sort-option input[type="radio"]:checked + label {
+    background-color: #1db954;
+    font-weight: bold;
+}
+
+/* Modal footer with action buttons */
+.filter-modal-footer {
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#resetFiltersBtn {
+    background-color: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+#resetFiltersBtn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+#applyFiltersBtn {
+    background-color: #1db954;
+    border: none;
+    color: white;
+    padding: 12px 25px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+#applyFiltersBtn:hover {
+    background-color: #1ed760;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(29, 185, 84, 0.3);
+}
+
+/* Responsive design for filter modal */
+@media (max-width: 480px) {
+    .filter-modal {
+        width: 100%;
+        max-width: none;
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
+    }
+    
+    .filter-modal-content {
+        padding: 12px;
+    }
+    
+    .sort-options {
+        flex-direction: column;
+    }
+    
+    .sort-option {
+        width: 100%;
+    }
+} 

@@ -1,0 +1,20 @@
+{
+  "name": "radio-app",
+  "version": "1.0.0",
+  "description": "Radio Application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "canvas": "^3.1.0",
+    "child_process": "^1.0.2",
+    "express": "^4.21.2",
+    "fs": "^0.0.1-security",
+    "https": "^1.0.0",
+    "openssl": "^2.0.0",
+    "os": "^0.1.2",
+    "path": "^0.12.7",
+    "selfsigned": "^2.4.1"
+  }
+}

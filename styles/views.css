@@ -1,0 +1,70 @@
+/* View-specific styles */
+
+/* Songs view */
+.player[data-view="songs"] .song-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Adjust existing styles */
+.player[data-view="songs"] .radio-station .station-image,
+.player[data-view="songs"] .song-item .song-cover {
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    margin-right: 12px;
+    object-fit: cover;
+}
+
+/* Discover and favorites tab specific styles */
+.player[data-view="discover"] .radio-station,
+.player[data-view="favorites"] .radio-station {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 12px;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.player[data-view="discover"] .radio-list,
+.player[data-view="favorites"] .radio-list {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 8px;
+}
+
+.player[data-view="discover"] .station-image,
+.player[data-view="favorites"] .station-image {
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    margin-right: 12px;
+    margin-bottom: 0;
+}
+
+.player[data-view="discover"] .station-info,
+.player[data-view="favorites"] .station-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    flex: 1;
+}
+
+.player[data-view="discover"] .station-name,
+.player[data-view="favorites"] .station-name {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 0;
+    text-align: left;
+}
+
+.player[data-view="discover"] .favorite-btn,
+.player[data-view="favorites"] .favorite-btn {
+    position: static;
+    font-size: 24px;
+    padding: 8px;
+} 

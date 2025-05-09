@@ -1,0 +1,154 @@
+/* Lists and item styles for both songs and radio stations */
+.radio-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 16px;
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Custom scrollbar */
+.radio-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.radio-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.radio-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+/* Loading state */
+.radio-list.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+/* Radio Station Styles */
+.radio-station {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    background: var(--card-background);
+    border-radius: 6px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+    animation: fadeIn 0.3s ease;
+}
+
+.radio-station:hover {
+    transform: translateX(4px);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.radio-station:active {
+    transform: scale(0.98);
+}
+
+.radio-station.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--active-indicator);
+    border-radius: 4px 0 0 4px;
+}
+
+.radio-station.active {
+    background: rgba(29, 185, 84, 0.1);
+    border-left: 4px solid var(--primary-color);
+}
+
+.station-image {
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    margin-right: 12px;
+    object-fit: cover;
+}
+
+.station-info {
+    flex: 1;
+}
+
+.station-name {
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.station-description {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* Song Item Styles */
+.song-item {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    background: var(--card-background);
+    border-radius: 6px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.song-cover {
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    margin-right: 12px;
+    object-fit: cover;
+    background-color: rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+.song-info {
+    flex: 1;
+}
+
+.song-title {
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.song-duration {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* Favorite button styles */
+.favorite-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px;
+    font-size: 24px;
+    opacity: 0.8;
+    cursor: pointer;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.favorite-btn:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.favorite-btn:active {
+    transform: scale(0.9);
+} 

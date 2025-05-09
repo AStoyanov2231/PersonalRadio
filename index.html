@@ -2,37 +2,109 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player</title>
-    <link rel="stylesheet" href="styles.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- iOS fullscreen mode when added to home screen -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- Android fullscreen mode when added to home screen -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <!-- Force orientation -->
+    <meta name="screen-orientation" content="portrait">
+    <!-- PWA security meta tags -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://all.api.radio-browser.info https://*.api.radio-browser.info data: 'unsafe-inline' 'unsafe-eval'; 
+    connect-src 'self' https: http:; 
+    img-src 'self' data: https: http:; 
+    media-src 'self' data: https: http:; 
+    upgrade-insecure-requests;">
+    <title>Music Player</title>
+    <!-- CSS files -->
+    <link rel="stylesheet" href="styles/base.css">
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/filters.css">
+    <link rel="stylesheet" href="styles/lists.css">
+    <link rel="stylesheet" href="styles/messages.css">
+    <link rel="stylesheet" href="styles/navigation.css">
+    <link rel="stylesheet" href="styles/player.css">
+    <link rel="stylesheet" href="styles/responsive.css">
+    <link rel="stylesheet" href="styles/search.css">
+    <link rel="stylesheet" href="styles/views.css">
+    <!-- Add manifest for PWA support -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Apple-specific PWA tags -->
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512x512.png">
+    <meta name="apple-mobile-web-app-title" content="Music Player">
+    <meta name="description" content="Personal music player app with offline support">
+    <style>
+        #installAppBtn {
+            position: fixed;
+            bottom: 70px;
+            right: 20px;
+            background-color: #1DB954;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+            cursor: pointer;
+        }
+        /* Make the button gently pulse to draw attention */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        #installAppBtn {
+            animation: pulse 2s infinite;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <div class="player">
-            <h1>Browse</h1>
-            <div class="search-bar">
-                <input type="text" id="searchInput" placeholder="Search stations...">
+            <h1>Your Songs</h1>
+            <div class="action-bar">
+                <div class="search-bar">
+                    <input type="text" id="searchInput" placeholder="Search songs...">
+                </div>
+                <label for="uploadSong" class="upload-btn" id="uploadBtn">
+                    <span>+</span>
+                </label>
+                <input type="file" id="uploadSong" accept="audio/*" style="display: none">
             </div>
-            <!-- Radio list will be populated dynamically -->
-            <div class="radio-list"></div>
+            <!-- Music list will be populated dynamically -->
+            <div class="radio-list song-list"></div>
             <div class="now-playing">
                 <div class="now-playing-info">
                     <p id="currentRadio"></p>
                     <p id="radioDescription" class="description"></p>
                 </div>
                 <div class="controls">
+                    <button id="prevBtn" class="nav-control-btn prev-btn">
+                        <span>⏮</span>
+                    </button>
                     <button id="playPauseBtn" class="play-pause-btn">
                         <span class="play-icon">▶</span>
                         <span class="pause-icon hidden">⏸</span>
                     </button>
+                    <button id="nextBtn" class="nav-control-btn next-btn">
+                        <span>⏭</span>
+                    </button>
                 </div>
                 <div class="status">
-                    <p id="statusText">Select a station to play</p>
+                    <p id="statusText">Select a song to play</p>
                 </div>
             </div>
             <nav class="bottom-nav">
                 <button class="nav-btn active">
-                    <span class="nav-icon">📻</span>
+                    <span class="nav-icon">🎵</span>
                     <span>Your Songs</span>
                 </button>
                 <button class="nav-btn">
@@ -46,6 +118,200 @@
             </nav>
         </div>
     </div>
+    
+    <!-- Add a visible install button -->
+    <button id="installAppBtn" title="Install this app">📱</button>
+    
+    <div id="installPrompt" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #1DB954; color: white; padding: 12px; text-align: center; box-shadow: 0 -2px 8px rgba(0,0,0,0.2);">
+        <p>Install this app on your device for offline use</p>
+        <button id="installBtn" style="background: white; color: #1DB954; border: none; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin: 8px;">Install</button>
+        <button id="closePromptBtn" style="background: transparent; color: white; border: 1px solid white; padding: 8px 16px; border-radius: 20px; margin: 8px;">Not Now</button>
+    </div>
     <script src="script.js"></script>
+    <script>
+        // For debugging PWA installation issues
+        console.log('PWA Installation debugging enabled');
+        
+        // Register service worker for PWA support
+        if ('serviceWorker' in navigator) {
+            console.log('Service Worker API is supported');
+            window.addEventListener('load', () => {
+                // Use relative path for service worker
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                        
+                        // Check for updates to the service worker
+                        registration.addEventListener('updatefound', () => {
+                            console.log('New service worker being installed');
+                            
+                            // Wait for the new service worker to be activated
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                console.log('Service worker state:', newWorker.state);
+                                
+                                if (newWorker.state === 'activated') {
+                                    console.log('New service worker activated');
+                                    // Show message about update
+                                    const statusText = document.getElementById('statusText');
+                                    if (statusText) {
+                                        statusText.textContent = 'App updated. Refresh for new version.';
+                                        setTimeout(() => {
+                                            if (statusText.textContent === 'App updated. Refresh for new version.') {
+                                                statusText.textContent = 'Select a song to play';
+                                            }
+                                        }, 5000);
+                                    }
+                                }
+                            });
+                        });
+                        
+                        // Immediately check for updates
+                        registration.update();
+                    })
+                    .catch(error => {
+                        console.error('ServiceWorker registration failed: ', error);
+                    });
+                    
+                // Handle service worker updates when the page loads
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    console.log('Service worker controller changed');
+                    
+                    // If this is not a reload, reload the page to ensure it uses the updated service worker
+                    if (!window.isReloading) {
+                        window.isReloading = true;
+                        console.log('New service worker activated, reloading page');
+                        
+                        // Don't reload immediately - give time for current operations to complete
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    }
+                });
+            });
+        } else {
+            console.error('Service Worker API is not supported in this browser');
+        }
+
+        // PWA install prompt handling
+        let deferredPrompt;
+        const installPrompt = document.getElementById('installPrompt');
+        const installBtn = document.getElementById('installBtn');
+        const closePromptBtn = document.getElementById('closePromptBtn');
+        const installAppBtn = document.getElementById('installAppBtn');
+
+        // Hide install button by default
+        installAppBtn.style.display = 'none';
+
+        // Debug install criteria
+        window.addEventListener('load', () => {
+            if (window.matchMedia('(display-mode: standalone)').matches) {
+                console.log('App is already installed and running in standalone mode');
+                installAppBtn.style.display = 'none';
+            } else {
+                console.log('App is running in browser mode, could be installed if criteria are met');
+                // Show the install button if the app is running in browser mode
+                installAppBtn.style.display = 'flex';
+            }
+            
+            // Check if PWA is installable
+            if ('serviceWorker' in navigator && window.isSecureContext) {
+                console.log('Environment supports PWA installation');
+            } else {
+                console.warn('Environment may not support PWA installation');
+                if (!window.isSecureContext) {
+                    console.warn('Not running in a secure context - PWAs require HTTPS or localhost');
+                }
+            }
+        });
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            console.log('beforeinstallprompt event fired!');
+            // Prevent Chrome 67 and earlier from automatically showing the prompt
+            e.preventDefault();
+            // Stash the event so it can be triggered later
+            deferredPrompt = e;
+            
+            // Show the install button
+            installAppBtn.style.display = 'flex';
+            
+            console.log('Install prompt ready to show');
+        });
+
+        // Handle clicks on the visible install button
+        installAppBtn.addEventListener('click', () => {
+            console.log('Install app button clicked');
+            
+            if (deferredPrompt) {
+                // Show the install prompt
+                deferredPrompt.prompt();
+                console.log('Install prompt shown to user');
+                
+                // Wait for the user to respond to the prompt
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('User accepted the install prompt');
+                        installAppBtn.style.display = 'none';
+                    } else {
+                        console.log('User dismissed the install prompt');
+                    }
+                    deferredPrompt = null;
+                });
+            } else {
+                console.log('No install prompt available');
+                // Show manual install instructions
+                const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                
+                if (isiOS) {
+                    alert('To install this app on iOS:\n\n' +
+                          '1. Tap the Share button at the bottom of the screen\n' +
+                          '2. Scroll down and tap "Add to Home Screen"\n' +
+                          '3. Tap "Add" in the top right corner');
+                } else {
+                alert('To install this app:\n\n' +
+                      '1. In Chrome/Edge: Look for the install icon (⊕) in the address bar\n' +
+                      '2. In Safari (iOS): Use the Share button and tap "Add to Home Screen"\n' +
+                      '3. In other browsers: Check your browser menu options');
+                }
+            }
+        });
+
+        installBtn.addEventListener('click', () => {
+            console.log('Install button clicked');
+            // Hide the app provided install promotion
+            installPrompt.style.display = 'none';
+            
+            if (!deferredPrompt) {
+                console.error('No deferredPrompt available!');
+                return;
+            }
+            
+            // Show the install prompt
+            deferredPrompt.prompt();
+            console.log('Install prompt shown to user');
+            
+            // Wait for the user to respond to the prompt
+            deferredPrompt.userChoice.then((choiceResult) => {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('User accepted the install prompt');
+                } else {
+                    console.log('User dismissed the install prompt');
+                }
+                deferredPrompt = null;
+            });
+        });
+
+        closePromptBtn.addEventListener('click', () => {
+            installPrompt.style.display = 'none';
+            console.log('Install prompt closed by user');
+        });
+
+        // Check if app is already installed
+        window.addEventListener('appinstalled', (evt) => {
+            installPrompt.style.display = 'none';
+            installAppBtn.style.display = 'none';
+            console.log('App was installed successfully!', evt);
+        });
+    </script>
 </body>
 </html> 
