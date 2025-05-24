@@ -1,0 +1,85 @@
+name: Deploy RadioWave PWA to GitHub Pages
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # Build job
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        
+      - name: Generate placeholder icons
+        run: |
+          # Create simple PNG icons using ImageMagick (if available) or just copy a placeholder
+          mkdir -p icons
+          
+          # Create a simple SVG icon that will work as placeholder
+          cat > icons/icon.svg << EOF
+          <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+            <rect width="512" height="512" fill="#1db954"/>
+            <circle cx="256" cy="200" r="80" fill="white"/>
+            <rect x="176" y="280" width="160" height="20" rx="10" fill="white"/>
+            <rect x="196" y="320" width="120" height="15" rx="7" fill="white"/>
+            <rect x="216" y="355" width="80" height="10" rx="5" fill="white"/>
+          </svg>
+          EOF
+          
+          # Convert SVG to different sizes (if convert is available)
+          if command -v convert &> /dev/null; then
+            convert icons/icon.svg -resize 72x72 icons/icon-72x72.png
+            convert icons/icon.svg -resize 96x96 icons/icon-96x96.png
+            convert icons/icon.svg -resize 128x128 icons/icon-128x128.png
+            convert icons/icon.svg -resize 144x144 icons/icon-144x144.png
+            convert icons/icon.svg -resize 152x152 icons/icon-152x152.png
+            convert icons/icon.svg -resize 192x192 icons/icon-192x192.png
+            convert icons/icon.svg -resize 384x384 icons/icon-384x384.png
+            convert icons/icon.svg -resize 512x512 icons/icon-512x512.png
+          else
+            # Fallback: create simple colored PNG files
+            echo "ImageMagick not available, creating placeholder files"
+            for size in 72 96 128 144 152 192 384 512; do
+              # Create a simple colored square as placeholder
+              printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x00\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > "icons/icon-${size}x${size}.png"
+            done
+          fi
+          
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  # Deployment job
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4 
