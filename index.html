@@ -19,7 +19,7 @@
     <link rel="manifest" href="manifest.json">
     
     <!-- Styles -->
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/index.css">
     
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -50,14 +50,6 @@
             </div>
         </div>
 
-        <!-- Search Header -->
-        <header class="app-header">
-            <div class="search-container">
-                <input type="text" id="searchInput" placeholder="Search stations..." class="search-input">
-                <i class="fas fa-search search-icon"></i>
-            </div>
-        </header>
-
         <!-- Bottom Navigation -->
         <nav class="bottom-nav">
             <button class="nav-item active" data-section="radio">
@@ -76,23 +68,16 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Landscape Search Bar (only visible in landscape mode) -->
-            <div class="landscape-search" style="display: none;">
-                <div class="search-container">
-                    <input type="text" id="landscapeSearchInput" placeholder="Search stations..." class="search-input">
-                    <i class="fas fa-search search-icon"></i>
-                </div>
-            </div>
-
             <!-- Radio Stations Section -->
             <section id="radio-section" class="content-section active">
                 <div class="section-header">
                     <h2>Radio Stations</h2>
-                    <div class="filter-buttons">
+                    <div class="filter-search-container">
                         <button class="filter-btn active" data-filter="all">All</button>
-                        <button class="filter-btn" data-filter="popular">Popular</button>
-                        <button class="filter-btn" data-filter="country">Country</button>
-                        <button class="filter-btn" data-filter="genre">Genre</button>
+                        <div class="search-container">
+                            <input type="text" id="searchInput" placeholder="Search stations..." class="search-input">
+                            <i class="fas fa-search search-icon"></i>
+                        </div>
                     </div>
                 </div>
                 <div id="stations-grid" class="stations-grid">
@@ -153,28 +138,33 @@
             <div class="landscape-controls-container">
                 <!-- Player Controls -->
                 <div class="landscape-player-controls">
-                    <button id="landscapePrevBtn" class="landscape-control-btn">
-                        <i class="fas fa-step-backward"></i>
-                    </button>
-                    <button id="landscapePlayPauseBtn" class="landscape-control-btn play-pause">
-                        <i class="fas fa-play"></i>
-                    </button>
-                    <button id="landscapeNextBtn" class="landscape-control-btn">
-                        <i class="fas fa-step-forward"></i>
-                    </button>
-                </div>
-
-                <!-- Extra Controls -->
-                <div class="landscape-extra-controls">
-                    <button id="landscapeFavoriteBtn" class="landscape-extra-btn">
-                        <i class="far fa-heart"></i>
-                        <span>Favorite</span>
-                    </button>
+                    <div class="landscape-player-controls-row">
+                        <button id="landscapePrevBtn" class="landscape-control-btn">
+                            <i class="fas fa-step-backward"></i>
+                        </button>
+                        <button id="landscapePlayPauseBtn" class="landscape-control-btn play-pause">
+                            <i class="fas fa-play"></i>
+                        </button>
+                        <button id="landscapeNextBtn" class="landscape-control-btn">
+                            <i class="fas fa-step-forward"></i>
+                        </button>
+                        <!-- Favorite Button -->
+                        <button id="landscapeFavoriteBtn" class="landscape-extra-btn">
+                            <i class="far fa-heart"></i>
+                            <span>Favorite</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Volume Control -->
                     <div class="landscape-volume-container">
                         <i class="fas fa-volume-up" id="landscapeVolumeIcon"></i>
                         <input type="range" id="landscapeVolumeSlider" min="0" max="100" value="50" class="landscape-volume-slider">
                         <span id="landscapeVolumeValue">50%</span>
                     </div>
+                </div>
+
+                <!-- Extra Controls -->
+                <div class="landscape-extra-controls" style="display: none;">
                 </div>
             </div>
 

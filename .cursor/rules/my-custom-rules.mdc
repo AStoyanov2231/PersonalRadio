@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+Write code without puting comments.
+
+When building ui make sure it is responsive and you are following the instructions i gave you strictly.
+
+
+When writing new css files or modify old once try to split them into diferent categories. Do not put everything into one big file.

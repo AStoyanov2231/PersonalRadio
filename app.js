@@ -6,6 +6,8 @@ class RadioWaveApp {
         this.isPlaying = false;
         this.favorites = JSON.parse(localStorage.getItem('radiowave_favorites') || '[]');
         this.myMusic = JSON.parse(localStorage.getItem('radiowave_music') || '[]');
+        // Load volume from localStorage, default to 50 if not found
+        this.volume = parseInt(localStorage.getItem('radiowave_volume') || '50', 10);
         this.stations = [];
         this.currentFilter = 'all';
         this.searchQuery = '';
@@ -25,6 +27,8 @@ class RadioWaveApp {
         await this.loadStations();
         this.renderFavorites();
         this.renderMyMusic();
+        // Set initial volume based on loaded value
+        this.setVolume(this.volume);
         this.updatePlayerState();
         this.checkOrientation();
     }
@@ -37,23 +41,14 @@ class RadioWaveApp {
             });
         });
 
-        // Filter buttons
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.setFilter(e.currentTarget.dataset.filter);
-            });
+        // "All" filter button
+        document.querySelector('.filter-btn[data-filter="all"]').addEventListener('click', () => {
+            this.loadStations();
         });
 
         // Search
         const searchInput = document.getElementById('searchInput');
         searchInput.addEventListener('input', (e) => {
-            this.searchQuery = e.target.value;
-            this.debounce(() => this.filterStations(), 300);
-        });
-
-        // Landscape search
-        const landscapeSearchInput = document.getElementById('landscapeSearchInput');
-        landscapeSearchInput.addEventListener('input', (e) => {
             this.searchQuery = e.target.value;
             this.debounce(() => this.filterStations(), 300);
         });
@@ -164,7 +159,6 @@ class RadioWaveApp {
         if (landscapeVolumeSlider) {
             landscapeVolumeSlider.addEventListener('input', (e) => {
                 this.setVolume(e.target.value);
-                this.updateLandscapeVolumeUI(e.target.value);
             });
         }
 
@@ -306,7 +300,13 @@ class RadioWaveApp {
                 e.stopPropagation();
                 const stationId = btn.closest('.station-card').dataset.stationId;
                 const station = this.stations.find(s => s.stationuuid === stationId);
-                this.playStation(station);
+                
+                // Check if this is the current station and toggle play/pause instead of just playing
+                if (this.currentStation && this.currentStation.stationuuid === station.stationuuid) {
+                    this.togglePlayPause();
+                } else {
+                    this.playStation(station);
+                }
             });
         });
 
@@ -424,7 +424,13 @@ class RadioWaveApp {
                 e.stopPropagation();
                 const stationId = btn.closest('.station-card').dataset.stationId;
                 const station = this.favorites.find(s => s.stationuuid === stationId);
-                this.playStation(station);
+                
+                // Check if this is the current station and toggle play/pause instead of just playing
+                if (this.currentStation && this.currentStation.stationuuid === station.stationuuid) {
+                    this.togglePlayPause();
+                } else {
+                    this.playStation(station);
+                }
             });
         });
     }
@@ -445,7 +451,13 @@ class RadioWaveApp {
                 e.stopPropagation();
                 const songId = btn.closest('.station-card').dataset.songId;
                 const song = this.myMusic.find(s => s.id === songId);
-                this.playLocalMusic(song);
+                
+                // Check if this is the current song and toggle play/pause instead of just playing
+                if (this.currentStation && this.currentStation.id === song.id) {
+                    this.togglePlayPause();
+                } else {
+                    this.playLocalMusic(song);
+                }
             });
         });
 
@@ -685,24 +697,11 @@ class RadioWaveApp {
         }
     }
 
-    setFilter(filter) {
-        this.currentFilter = filter;
-        
-        // Update filter buttons
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        document.querySelector(`[data-filter="${filter}"]`).classList.add('active');
-
-        // Load filtered stations
-        this.loadStationsByFilter(filter);
-    }
-
     filterStations() {
         if (this.searchQuery) {
             this.searchStations(this.searchQuery);
         } else {
-            this.loadStationsByFilter(this.currentFilter);
+            this.loadStations();
         }
     }
 
@@ -783,42 +782,57 @@ class RadioWaveApp {
     }
 
     setVolume(value) {
-        this.audioElement.volume = value / 100;
-        document.getElementById('volumeValue').textContent = `${value}%`;
+        // Ensure value is between 0 and 100
+        const volumeValue = Math.max(0, Math.min(100, value));
         
-        // Update landscape volume UI if in landscape mode
-        if (this.isLandscape) {
-            this.updateLandscapeVolumeUI(value);
+        // Set audio volume (0-1 range)
+        this.audioElement.volume = volumeValue / 100;
+        
+        // Update UI elements
+        document.getElementById('volumeValue').textContent = `${volumeValue}%`;
+        document.getElementById('volumeSlider').value = volumeValue;
+        
+        // Update the background to show the filled portion for the modal slider
+        const percentage = volumeValue + '%';
+        document.getElementById('volumeSlider').style.background = `linear-gradient(to right, var(--primary-color) ${percentage}, var(--card-color) ${percentage})`;
+        
+        // Update landscape volume slider if it exists
+        const landscapeVolumeSlider = document.getElementById('landscapeVolumeSlider');
+        const landscapeVolumeValue = document.getElementById('landscapeVolumeValue');
+        
+        if (landscapeVolumeSlider) {
+            landscapeVolumeSlider.value = volumeValue;
+            // Update the background to show the filled portion
+            landscapeVolumeSlider.style.background = `linear-gradient(to right, var(--primary-color) ${percentage}, var(--card-color) ${percentage})`;
         }
         
-        const volumeBtn = document.getElementById('volumeBtn');
-        const icon = volumeBtn.querySelector('i');
-        
-        if (value == 0) {
-            icon.className = 'fas fa-volume-mute';
-        } else if (value < 50) {
-            icon.className = 'fas fa-volume-down';
-        } else {
-            icon.className = 'fas fa-volume-up';
+        if (landscapeVolumeValue) {
+            landscapeVolumeValue.textContent = `${volumeValue}%`;
         }
+        
+        // Update volume icon
+        this.updateVolumeIcon(volumeValue);
+        
+        // Save to localStorage
+        localStorage.setItem('radiowave_volume', volumeValue);
     }
 
-    updateLandscapeVolumeUI(value) {
-        const volumeIcon = document.getElementById('landscapeVolumeIcon');
-        const volumeValue = document.getElementById('landscapeVolumeValue');
+    updateVolumeIcon(value) {
+        const iconClass = value === 0 ? 'fa-volume-mute' : 
+                         value < 30 ? 'fa-volume-off' : 
+                         value < 70 ? 'fa-volume-down' : 
+                         'fa-volume-up';
         
-        if (volumeValue) {
-            volumeValue.textContent = `${value}%`;
+        // Update top volume icon if exists
+        const volumeIcon = document.getElementById('volumeIcon');
+        if (volumeIcon) {
+            volumeIcon.className = `fas ${iconClass}`;
         }
         
-        if (volumeIcon) {
-            if (value == 0) {
-                volumeIcon.className = 'fas fa-volume-mute';
-            } else if (value < 50) {
-                volumeIcon.className = 'fas fa-volume-down';
-            } else {
-                volumeIcon.className = 'fas fa-volume-up';
-            }
+        // Update landscape volume icon
+        const landscapeVolumeIcon = document.getElementById('landscapeVolumeIcon');
+        if (landscapeVolumeIcon) {
+            landscapeVolumeIcon.className = `fas ${iconClass}`;
         }
     }
 
@@ -955,19 +969,6 @@ class RadioWaveApp {
             landscapeExtras.style.display = 'none';
         }
         
-        // Show landscape search
-        const landscapeSearch = document.querySelector('.landscape-search');
-        if (landscapeSearch) {
-            landscapeSearch.style.display = 'block';
-        }
-        
-        // Sync search values
-        const searchInput = document.getElementById('searchInput');
-        const landscapeSearchInput = document.getElementById('landscapeSearchInput');
-        if (searchInput && landscapeSearchInput) {
-            landscapeSearchInput.value = searchInput.value;
-        }
-        
         // Hide now playing indicator
         const nowPlayingIndicator = document.getElementById('landscapeNowPlaying');
         if (nowPlayingIndicator) {
@@ -992,7 +993,6 @@ class RadioWaveApp {
         if (landscapeVolumeSlider) {
             const currentVolume = Math.round(this.audioElement.volume * 100);
             landscapeVolumeSlider.value = currentVolume;
-            this.updateLandscapeVolumeUI(currentVolume);
         }
     }
 
@@ -1003,19 +1003,6 @@ class RadioWaveApp {
         const landscapeControlsPanel = document.getElementById('landscapeControlsPanel');
         if (landscapeControlsPanel) {
             landscapeControlsPanel.style.display = 'none';
-        }
-        
-        // Hide landscape search
-        const landscapeSearch = document.querySelector('.landscape-search');
-        if (landscapeSearch) {
-            landscapeSearch.style.display = 'none';
-        }
-        
-        // Sync search values back
-        const searchInput = document.getElementById('searchInput');
-        const landscapeSearchInput = document.getElementById('landscapeSearchInput');
-        if (searchInput && landscapeSearchInput) {
-            searchInput.value = landscapeSearchInput.value;
         }
         
         // Hide now playing indicator
@@ -1123,6 +1110,11 @@ class RadioWaveApp {
                 item.classList.remove('active');
             }
         });
+    }
+
+    // Method no longer needed as we only have the "All" button now and search
+    setFilter(filter) {
+        this.loadStations();
     }
 }
 
