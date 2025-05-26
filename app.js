@@ -16,8 +16,15 @@ class RadioWaveApp {
         this.currentMusic = null;
         this.systemVolumeSupported = false;
         
-        // Radio Browser API base URL
-        this.apiBase = 'https://de1.api.radio-browser.info';
+        // Radio Browser API servers - multiple for fallbacks
+        this.apiServers = [
+            'https://de1.api.radio-browser.info',
+            'https://at1.api.radio-browser.info',
+            'https://nl1.api.radio-browser.info',
+            'https://fr1.api.radio-browser.info'
+        ];
+        this.apiBase = this.apiServers[0]; // Default to first server
+        this.apiRetryCount = 0;
         
         this.audioContext = null;
         this.debounceTimer = null;
@@ -209,11 +216,25 @@ class RadioWaveApp {
         try {
             // Load popular stations first
             const response = await fetch(`${this.apiBase}/json/stations/topvote/100`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             this.stations = await response.json();
             this.renderStations();
+            this.apiRetryCount = 0; // Reset retry count on success
         } catch (error) {
             console.error('Failed to load stations:', error);
-            this.showError('Failed to load radio stations. Please check your connection.');
+            
+            // Try next API server if available
+            if (this.apiRetryCount < this.apiServers.length - 1) {
+                this.apiRetryCount++;
+                this.apiBase = this.apiServers[this.apiRetryCount];
+                console.log(`Trying alternate API server: ${this.apiBase}`);
+                return this.loadStations(); // Retry with new server
+            }
+            
+            // All servers failed
+            this.showError('Failed to load radio stations. Please check your connection and try again.');
         }
         this.hideLoading();
     }
@@ -229,11 +250,26 @@ class RadioWaveApp {
             const response = await fetch(
                 `${this.apiBase}/json/stations/search?name=${encodeURIComponent(query)}&limit=50`
             );
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             this.stations = await response.json();
             this.renderStations();
+            this.apiRetryCount = 0; // Reset retry count on success
         } catch (error) {
             console.error('Search failed:', error);
-            this.showError('Search failed. Please try again.');
+            
+            // Try next API server if available
+            if (this.apiRetryCount < this.apiServers.length - 1) {
+                this.apiRetryCount++;
+                this.apiBase = this.apiServers[this.apiRetryCount];
+                console.log(`Trying alternate API server for search: ${this.apiBase}`);
+                return this.searchStations(query); // Retry with new server
+            }
+            
+            this.showError('Search failed. Please try again or check your connection.');
         }
         this.hideLoading();
     }
@@ -298,8 +334,16 @@ class RadioWaveApp {
             card.addEventListener('click', (e) => {
                 if (!e.target.closest('.station-actions')) {
                     const stationId = card.dataset.stationId;
-                    const station = this.stations.find(s => s.stationuuid === stationId);
-                    this.playStation(station);
+                    const station = this.stations.find(s => 
+                        (s.stationuuid && s.stationuuid === stationId) || 
+                        (s.uuid && s.uuid === stationId)
+                    );
+                    
+                    if (station) {
+                        this.playStation(station);
+                    } else {
+                        console.error('Station not found:', stationId);
+                    }
                 }
             });
         });
@@ -309,14 +353,32 @@ class RadioWaveApp {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const stationId = btn.closest('.station-card').dataset.stationId;
-                const station = this.stations.find(s => s.stationuuid === stationId);
+                const station = this.stations.find(s => 
+                    (s.stationuuid && s.stationuuid === stationId) || 
+                    (s.uuid && s.uuid === stationId)
+                );
+                
+                if (!station) {
+                    console.error('Station not found:', stationId);
+                    return;
+                }
                 
                 // Check if this is the current station and toggle play/pause instead of just playing
-                if (this.currentStation && this.currentStation.stationuuid === station.stationuuid) {
-                    this.togglePlayPause();
-                } else {
-                this.playStation(station);
+                if (this.currentStation) {
+                    const sameStation = (
+                        (station.stationuuid && this.currentStation.stationuuid && 
+                         station.stationuuid === this.currentStation.stationuuid) ||
+                        (station.uuid && this.currentStation.uuid && 
+                         station.uuid === this.currentStation.uuid)
+                    );
+                    
+                    if (sameStation) {
+                        this.togglePlayPause();
+                        return;
+                    }
                 }
+                
+                this.playStation(station);
             });
         });
 
@@ -324,18 +386,44 @@ class RadioWaveApp {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const stationId = btn.closest('.station-card').dataset.stationId;
-                const station = this.stations.find(s => s.stationuuid === stationId);
-                this.toggleStationFavorite(station);
+                const station = this.stations.find(s => 
+                    (s.stationuuid && s.stationuuid === stationId) || 
+                    (s.uuid && s.uuid === stationId)
+                );
+                
+                if (station) {
+                    this.toggleStationFavorite(station);
+                } else {
+                    console.error('Station not found:', stationId);
+                }
             });
         });
     }
 
     createStationCard(station) {
-        const isFavorite = this.favorites.some(fav => fav.stationuuid === station.stationuuid);
-        const isActive = this.currentStation && this.currentStation.stationuuid === station.stationuuid;
+        // Determine station ID (use stationuuid or uuid)
+        const stationId = station.stationuuid || station.uuid;
+        
+        if (!stationId) {
+            console.error('Missing station ID in createStationCard:', station);
+        }
+        
+        // Check if station is in favorites
+        const isFavorite = this.favorites.some(fav => 
+            (fav.stationuuid && station.stationuuid && fav.stationuuid === station.stationuuid) || 
+            (fav.uuid && station.uuid && fav.uuid === station.uuid)
+        );
+        
+        // Check if station is currently playing
+        const isActive = this.currentStation && (
+            (this.currentStation.stationuuid && station.stationuuid && 
+             this.currentStation.stationuuid === station.stationuuid) ||
+            (this.currentStation.uuid && station.uuid && 
+             this.currentStation.uuid === station.uuid)
+        );
         
         return `
-            <div class="station-card ${isActive ? 'active' : ''}" data-station-id="${station.stationuuid}">
+            <div class="station-card ${isActive ? 'active' : ''}" data-station-id="${stationId}">
                 <div class="station-info">
                     <div class="station-avatar">
                         ${station.favicon ? 
@@ -423,8 +511,16 @@ class RadioWaveApp {
             card.addEventListener('click', (e) => {
                 if (!e.target.closest('.station-actions')) {
                     const stationId = card.dataset.stationId;
-                    const station = this.favorites.find(s => s.stationuuid === stationId);
-                    this.playStation(station);
+                    const station = this.favorites.find(s => 
+                        (s.stationuuid && s.stationuuid === stationId) || 
+                        (s.uuid && s.uuid === stationId)
+                    );
+                    
+                    if (station) {
+                        this.playStation(station);
+                    } else {
+                        console.error('Favorite station not found:', stationId);
+                    }
                 }
             });
         });
@@ -433,14 +529,32 @@ class RadioWaveApp {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const stationId = btn.closest('.station-card').dataset.stationId;
-                const station = this.favorites.find(s => s.stationuuid === stationId);
+                const station = this.favorites.find(s => 
+                    (s.stationuuid && s.stationuuid === stationId) || 
+                    (s.uuid && s.uuid === stationId)
+                );
+                
+                if (!station) {
+                    console.error('Favorite station not found:', stationId);
+                    return;
+                }
                 
                 // Check if this is the current station and toggle play/pause instead of just playing
-                if (this.currentStation && this.currentStation.stationuuid === station.stationuuid) {
-                    this.togglePlayPause();
-                } else {
-                this.playStation(station);
+                if (this.currentStation) {
+                    const sameStation = (
+                        (station.stationuuid && this.currentStation.stationuuid && 
+                         station.stationuuid === this.currentStation.stationuuid) ||
+                        (station.uuid && this.currentStation.uuid && 
+                         station.uuid === this.currentStation.uuid)
+                    );
+                    
+                    if (sameStation) {
+                        this.togglePlayPause();
+                        return;
+                    }
                 }
+                
+                this.playStation(station);
             });
         });
     }
@@ -483,19 +597,74 @@ class RadioWaveApp {
     async playStation(station) {
         console.log('Playing station:', station.name);
         
-        if (this.currentStation && this.currentStation.uuid === station.uuid && this.isPlaying) {
-            // If it's the same station and it's already playing, pause it
-            this.togglePlayPause();
-            return;
+        // Check if this station is already playing
+        if (this.currentStation && this.isPlaying) {
+            // Check both uuid and stationuuid fields
+            const sameStation = (
+                (station.stationuuid && this.currentStation.stationuuid && 
+                 station.stationuuid === this.currentStation.stationuuid) ||
+                (station.uuid && this.currentStation.uuid && 
+                 station.uuid === this.currentStation.uuid)
+            );
+            
+            if (sameStation) {
+                // If it's the same station and it's already playing, pause it
+                this.togglePlayPause();
+                return;
+            }
         }
+        
+        // Show loading indicator
+        this.showLoading();
         
         try {
             // Reset audio element
             this.audioElement.pause();
+            
+            // Clear any previous errors
+            this.audioElement.onerror = null;
+            
+            // Configure audio element
+            this.audioElement.crossOrigin = "anonymous"; // Add CORS support
             this.audioElement.src = station.url;
+            
+            // Add error event listener
+            this.audioElement.onerror = (e) => {
+                console.error('Audio element error:', e);
+                
+                // Try alternative URL format if available
+                if (station.url_resolved && station.url_resolved !== station.url) {
+                    console.log('Trying alternative URL:', station.url_resolved);
+                    this.audioElement.src = station.url_resolved;
+                    this.audioElement.load();
+                    this.audioElement.play().catch(error => {
+                        console.error('Error playing alternative URL:', error);
+                        this.handleAudioError();
+                    });
+                    return;
+                }
+                
+                this.handleAudioError();
+            };
+            
+            // Set timeout for stalled connections
+            const playbackTimeout = setTimeout(() => {
+                if (!this.isPlaying) {
+                    console.log('Playback timed out');
+                    this.handleAudioError();
+                }
+            }, 10000); // 10 second timeout
+            
+            // Make sure both uuid and stationuuid are set if available
+            if (station.uuid && !station.stationuuid) {
+                station.stationuuid = station.uuid;
+            } else if (station.stationuuid && !station.uuid) {
+                station.uuid = station.stationuuid;
+            }
             
             // Update current station
             this.currentStation = station;
+            this.currentStation.type = 'radio'; // Explicitly set type
             this.currentMusic = null;
             
             // Start playing
@@ -503,14 +672,33 @@ class RadioWaveApp {
             
             if (playPromise !== undefined) {
                 playPromise.then(() => {
+                    clearTimeout(playbackTimeout);
                     this.isPlaying = true;
                     this.updatePlayerState();
                     this.updateMediaSession(); // Update media session with current station
+                    this.hideLoading();
                     
-                    // Track station play
-                    this.countStationClick(station.uuid);
+                    // Track station play - wrapped in try/catch to avoid failure
+                    try {
+                        // Try both uuid and stationuuid
+                        this.countStationClick(station.stationuuid || station.uuid);
+                    } catch (clickError) {
+                        console.log('Failed to count click:', clickError);
+                    }
                 }).catch(error => {
+                    clearTimeout(playbackTimeout);
                     console.error('Error playing audio:', error);
+                    
+                    // Try alternative URL if available
+                    if (station.url_resolved && station.url_resolved !== station.url) {
+                        console.log('Trying alternative URL after play failure:', station.url_resolved);
+                        this.audioElement.src = station.url_resolved;
+                        return this.audioElement.play().catch(secondError => {
+                            console.error('Error playing alternative URL:', secondError);
+                            this.handleAudioError();
+                        });
+                    }
+                    
                     this.handleAudioError();
                 });
             }
@@ -589,19 +777,40 @@ class RadioWaveApp {
         const currentList = this.getCurrentPlaylist();
         if (currentList.length === 0) return;
 
-        const currentIndex = currentList.findIndex(item => {
-            return this.currentStation.type === 'radio' 
-                ? item.stationuuid === this.currentStation.stationuuid
-                : item.id === this.currentStation.id;
-        });
-
-        const nextIndex = (currentIndex + 1) % currentList.length;
-        const nextItem = currentList[nextIndex];
-
-        if (this.currentStation.type === 'radio') {
-            this.playStation(nextItem);
+        let currentIndex = -1;
+        
+        // Check if we have a local music file or radio station
+        if (this.currentStation) {
+            if (this.currentStation.type === 'local') {
+                // For local music files
+                currentIndex = currentList.findIndex(item => item.id === this.currentStation.id);
+            } else {
+                // For radio stations - check both stationuuid and uuid fields
+                currentIndex = currentList.findIndex(item => 
+                    (item.stationuuid && this.currentStation.stationuuid && 
+                     item.stationuuid === this.currentStation.stationuuid) || 
+                    (item.uuid && this.currentStation.uuid && 
+                     item.uuid === this.currentStation.uuid)
+                );
+            }
+        }
+        
+        // If current station wasn't found, start from beginning
+        if (currentIndex === -1) {
+            currentIndex = 0;
         } else {
+            // Move to next item
+            currentIndex = (currentIndex + 1) % currentList.length;
+        }
+        
+        const nextItem = currentList[currentIndex];
+        console.log('Playing next item:', nextItem);
+
+        // Play the next item based on its type
+        if (nextItem.type === 'local' || (this.currentStation && this.currentStation.type === 'local')) {
             this.playLocalMusic(nextItem);
+        } else {
+            this.playStation(nextItem);
         }
     }
 
@@ -609,19 +818,40 @@ class RadioWaveApp {
         const currentList = this.getCurrentPlaylist();
         if (currentList.length === 0) return;
 
-        const currentIndex = currentList.findIndex(item => {
-            return this.currentStation.type === 'radio' 
-                ? item.stationuuid === this.currentStation.stationuuid
-                : item.id === this.currentStation.id;
-        });
-
-        const prevIndex = currentIndex === 0 ? currentList.length - 1 : currentIndex - 1;
-        const prevItem = currentList[prevIndex];
-
-        if (this.currentStation.type === 'radio') {
-            this.playStation(prevItem);
+        let currentIndex = -1;
+        
+        // Check if we have a local music file or radio station
+        if (this.currentStation) {
+            if (this.currentStation.type === 'local') {
+                // For local music files
+                currentIndex = currentList.findIndex(item => item.id === this.currentStation.id);
+            } else {
+                // For radio stations - check both stationuuid and uuid fields
+                currentIndex = currentList.findIndex(item => 
+                    (item.stationuuid && this.currentStation.stationuuid && 
+                     item.stationuuid === this.currentStation.stationuuid) || 
+                    (item.uuid && this.currentStation.uuid && 
+                     item.uuid === this.currentStation.uuid)
+                );
+            }
+        }
+        
+        // If current station wasn't found, start from end
+        if (currentIndex === -1) {
+            currentIndex = currentList.length - 1;
         } else {
+            // Move to previous item
+            currentIndex = currentIndex === 0 ? currentList.length - 1 : currentIndex - 1;
+        }
+        
+        const prevItem = currentList[currentIndex];
+        console.log('Playing previous item:', prevItem);
+
+        // Play the previous item based on its type
+        if (prevItem.type === 'local' || (this.currentStation && this.currentStation.type === 'local')) {
             this.playLocalMusic(prevItem);
+        } else {
+            this.playStation(prevItem);
         }
     }
 
@@ -641,30 +871,83 @@ class RadioWaveApp {
     }
 
     toggleFavorite() {
-        if (!this.currentStation || this.currentStation.type !== 'radio') return;
+        if (!this.currentStation) return;
+        
+        // If the current station doesn't have a type, assume it's a radio station
+        if (!this.currentStation.type) {
+            this.currentStation.type = 'radio';
+        }
+        
+        if (this.currentStation.type !== 'radio') return;
+        
         this.toggleStationFavorite(this.currentStation);
     }
 
     toggleStationFavorite(station) {
-        const index = this.favorites.findIndex(fav => fav.stationuuid === station.stationuuid);
+        // Determine station ID (use stationuuid or uuid)
+        const stationId = station.stationuuid || station.uuid;
+        
+        if (!stationId) {
+            console.error('No station ID found for favoriting');
+            return;
+        }
+        
+        // Ensure the station has both uuid and stationuuid set for consistency
+        if (station.uuid && !station.stationuuid) {
+            station.stationuuid = station.uuid;
+        } else if (station.stationuuid && !station.uuid) {
+            station.uuid = station.stationuuid;
+        }
+        
+        // Find if station is already a favorite
+        const index = this.favorites.findIndex(fav => 
+            (fav.stationuuid && fav.stationuuid === stationId) || 
+            (fav.uuid && fav.uuid === stationId)
+        );
         
         if (index === -1) {
+            // Not a favorite yet, add it
+            // Make sure station has type property set
+            if (!station.type) {
+                station.type = 'radio';
+            }
             this.favorites.push(station);
         } else {
+            // Already a favorite, remove it
             this.favorites.splice(index, 1);
         }
         
+        // Save to localStorage
         localStorage.setItem('radiowave_favorites', JSON.stringify(this.favorites));
+        
+        // Update UI
         this.updatePlayerUI();
         this.renderStations();
         this.renderFavorites();
     }
 
     async countStationClick(stationUuid) {
+        // Don't block on this operation and make it fail silently
+        if (!stationUuid) return;
+        
         try {
-            await fetch(`${this.apiBase}/json/add/1/${stationUuid}`, { method: 'POST' });
+            const response = await fetch(`${this.apiBase}/json/vote/${stationUuid}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'RadioWave/1.0' // Add user agent to reduce rejections
+                }
+            });
+            
+            if (!response.ok) {
+                console.log(`Failed to count click: ${response.status}`);
+                return; // Fail silently, this is non-critical
+            }
+            
+            console.log('Station click counted successfully');
         } catch (error) {
             console.log('Failed to count click:', error);
+            // Non-critical, continue without showing error to user
         }
     }
 
@@ -788,9 +1071,22 @@ class RadioWaveApp {
             const stationId = card.dataset.stationId;
             const playBtn = card.querySelector('.play-btn i');
             
-            if (this.currentStation && this.currentStation.stationuuid === stationId) {
-                card.classList.add('active');
-                playBtn.className = this.isPlaying ? 'fas fa-pause' : 'fas fa-play';
+            if (this.currentStation) {
+                // Check if this card matches the current station using either uuid or stationuuid
+                const isCurrentStation = (
+                    (this.currentStation.stationuuid && 
+                     this.currentStation.stationuuid === stationId) ||
+                    (this.currentStation.uuid && 
+                     this.currentStation.uuid === stationId)
+                );
+                
+                if (isCurrentStation) {
+                    card.classList.add('active');
+                    playBtn.className = this.isPlaying ? 'fas fa-pause' : 'fas fa-play';
+                } else {
+                    card.classList.remove('active');
+                    playBtn.className = 'fas fa-play';
+                }
             } else {
                 card.classList.remove('active');
                 playBtn.className = 'fas fa-play';
@@ -1045,14 +1341,68 @@ class RadioWaveApp {
     }
 
     showError(message) {
-        // Simple error notification - could be enhanced with a toast system
         console.error(message);
-        alert(message); // Temporary - should use a proper notification system
+        
+        // Create a toast notification instead of alert
+        const toast = document.createElement('div');
+        toast.className = 'error-toast';
+        toast.innerHTML = `
+            <div class="error-icon"><i class="fas fa-exclamation-circle"></i></div>
+            <div class="error-message">${message}</div>
+            <button class="error-close">&times;</button>
+        `;
+        
+        // Add to body
+        document.body.appendChild(toast);
+        
+        // Show with animation
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 10);
+        
+        // Auto hide after 5 seconds
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300); // Wait for animation to complete
+        }, 5000);
+        
+        // Close button
+        toast.querySelector('.error-close').addEventListener('click', () => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300);
+        });
     }
 
     handleAudioError() {
         this.isPlaying = false;
-        this.showError('Audio playback error. The station might be offline.');
+        this.hideLoading();
+        
+        // Check if we have a current station to provide more context
+        let errorMessage = 'Audio playback error.';
+        
+        if (this.currentStation) {
+            errorMessage += ` The station "${this.currentStation.name}" might be offline or unavailable.`;
+            
+            // Check if the station URL might have been blocked by CORS
+            if (this.currentStation.url && (
+                this.currentStation.url.includes('http:') || 
+                this.currentStation.url.includes('https://www.radio.net') ||
+                this.currentStation.url.includes('https://www.franceinter.fr')
+            )) {
+                errorMessage += ' Access might be restricted due to security policies.';
+            }
+            
+            // Add retry hint
+            errorMessage += ' Try again later or select a different station.';
+        } else {
+            errorMessage += ' Please select a station to play.';
+        }
+        
+        this.showError(errorMessage);
         this.updatePlayerState();
     }
 
