@@ -13,14 +13,21 @@ class RadioWaveApp {
         this.searchQuery = '';
         this.isLandscape = false;
         this.landscapeTimeout = null;
+        this.currentMusic = null;
+        this.systemVolumeSupported = false;
         
         // Radio Browser API base URL
         this.apiBase = 'https://de1.api.radio-browser.info';
+        
+        this.audioContext = null;
+        this.debounceTimer = null;
         
         this.init();
     }
 
     async init() {
+        console.log('Initializing RadioWave App');
+        
         this.setupEventListeners();
         this.setupOrientationHandling();
         this.setupServiceWorker();
@@ -31,6 +38,9 @@ class RadioWaveApp {
         this.setVolume(this.volume);
         this.updatePlayerState();
         this.checkOrientation();
+        
+        // Setup media session for controlling system media
+        this.setupMediaSession();
     }
 
     setupEventListeners() {
@@ -305,7 +315,7 @@ class RadioWaveApp {
                 if (this.currentStation && this.currentStation.stationuuid === station.stationuuid) {
                     this.togglePlayPause();
                 } else {
-                    this.playStation(station);
+                this.playStation(station);
                 }
             });
         });
@@ -429,7 +439,7 @@ class RadioWaveApp {
                 if (this.currentStation && this.currentStation.stationuuid === station.stationuuid) {
                     this.togglePlayPause();
                 } else {
-                    this.playStation(station);
+                this.playStation(station);
                 }
             });
         });
@@ -456,7 +466,7 @@ class RadioWaveApp {
                 if (this.currentStation && this.currentStation.id === song.id) {
                     this.togglePlayPause();
                 } else {
-                    this.playLocalMusic(song);
+                this.playLocalMusic(song);
                 }
             });
         });
@@ -471,40 +481,42 @@ class RadioWaveApp {
     }
 
     async playStation(station) {
-        if (!station || !station.url_resolved) {
-            this.showError('Station URL not available');
+        console.log('Playing station:', station.name);
+        
+        if (this.currentStation && this.currentStation.uuid === station.uuid && this.isPlaying) {
+            // If it's the same station and it's already playing, pause it
+            this.togglePlayPause();
             return;
         }
-
-        this.currentStation = { ...station, type: 'radio' };
-        this.audioElement.src = station.url_resolved;
         
         try {
-            await this.audioElement.play();
-            this.isPlaying = true;
-            this.updatePlayerUI();
-            this.updateStationCards();
-            this.updateNowPlayingIndicator();
+            // Reset audio element
+            this.audioElement.pause();
+            this.audioElement.src = station.url;
             
-            // Count click for the station
-            this.countStationClick(station.stationuuid);
-        } catch (error) {
-            console.error('Playback failed:', error);
-            this.showError('Failed to play station. Trying alternative...');
+            // Update current station
+            this.currentStation = station;
+            this.currentMusic = null;
             
-            // Try the original URL if resolved fails
-            if (station.url !== station.url_resolved) {
-                try {
-                    this.audioElement.src = station.url;
-                    await this.audioElement.play();
+            // Start playing
+            const playPromise = this.audioElement.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
                     this.isPlaying = true;
-                    this.updatePlayerUI();
-                    this.updateStationCards();
-                    this.updateNowPlayingIndicator();
-                } catch (fallbackError) {
-                    this.showError('Station is currently unavailable');
-                }
+                    this.updatePlayerState();
+                    this.updateMediaSession(); // Update media session with current station
+                    
+                    // Track station play
+                    this.countStationClick(station.uuid);
+                }).catch(error => {
+                    console.error('Error playing audio:', error);
+                    this.handleAudioError();
+                });
             }
+        } catch (error) {
+            console.error('Error setting up audio:', error);
+            this.handleAudioError();
         }
     }
 
@@ -525,26 +537,52 @@ class RadioWaveApp {
     }
 
     togglePlayPause() {
-        if (!this.currentStation) {
-            this.showError('Please select a station or song first');
-            return;
-        }
-
+        // Ensure AudioContext is activated (browsers require user gesture)
+        this.activateAudioContext();
+        
         if (this.isPlaying) {
+            // Currently playing, so pause
             this.audioElement.pause();
             this.isPlaying = false;
         } else {
-            this.audioElement.play().catch(error => {
-                console.error('Playback failed:', error);
-                this.showError('Playback failed');
-            });
-            this.isPlaying = true;
+            // Currently paused, so play
+            if (this.audioElement.src) {
+                const playPromise = this.audioElement.play();
+                
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        this.isPlaying = true;
+                    }).catch(error => {
+                        console.error('Error playing audio:', error);
+                        this.handleAudioError();
+                    });
+                }
+            } else if (this.currentStation) {
+                // Try to reload the current station
+                this.playStation(this.currentStation);
+                return;
+            } else {
+                console.log('Nothing to play');
+                return;
+            }
         }
         
-        this.updatePlayerUI();
-        this.updateStationCards();
-        this.updateMusicCards();
-        this.updateNowPlayingIndicator();
+        // Update all UI components
+        this.updatePlayerState();
+        
+        // Update media session state
+        this.updateMediaSession();
+    }
+
+    activateAudioContext() {
+        // Some browsers require user interaction to activate AudioContext
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            this.audioContext.resume().then(() => {
+                console.log('AudioContext activated');
+            }).catch(error => {
+                console.warn('Failed to activate AudioContext:', error);
+            });
+        }
     }
 
     playNext() {
@@ -785,8 +823,32 @@ class RadioWaveApp {
         // Ensure value is between 0 and 100
         const volumeValue = Math.max(0, Math.min(100, value));
         
+        // For iOS devices, we'll show a hint to use physical buttons the first time
+        if (this.isIOS && !this.hasShownVolumeHint) {
+            this.showVolumeHint();
+            this.hasShownVolumeHint = true;
+        }
+        
         // Set audio volume (0-1 range)
         this.audioElement.volume = volumeValue / 100;
+        
+        // Try to set system volume if supported and not iOS
+        // (For iOS we'll handle this differently)
+        if (this.systemVolumeSupported && !this.isIOS) {
+            this.setSystemVolume(volumeValue);
+        } else if (this.isIOS && this.volumeChangeCount === undefined) {
+            // First time on iOS, initialize counter and show hint
+            this.volumeChangeCount = 0;
+            this.showVolumeHint();
+        } else if (this.isIOS) {
+            // Count volume changes on iOS to determine if we should show a hint
+            this.volumeChangeCount++;
+            
+            // Every 3 volume changes, remind iOS users to use physical buttons
+            if (this.volumeChangeCount % 3 === 0) {
+                this.setSystemVolume(volumeValue);
+            }
+        }
         
         // Update UI elements
         document.getElementById('volumeValue').textContent = `${volumeValue}%`;
@@ -815,6 +877,125 @@ class RadioWaveApp {
         
         // Save to localStorage
         localStorage.setItem('radiowave_volume', volumeValue);
+    }
+    
+    setSystemVolume(volumeValue) {
+        if (!this.systemVolumeSupported) return;
+        
+        try {
+            // Use normalized value (0-1)
+            const normalizedVolume = volumeValue / 100;
+            
+            // For iOS Safari, we need to try a different approach
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            if (isIOS) {
+                // On iOS, we need to trigger the native volume UI
+                // This is a workaround as direct system volume control isn't allowed
+                // First mute the audio briefly
+                const originalVolume = this.audioElement.volume;
+                this.audioElement.volume = 0;
+                
+                // Small timeout to let the UI update
+                setTimeout(() => {
+                    // Then restore volume - this often triggers the native volume UI
+                    this.audioElement.volume = originalVolume;
+                    
+                    // Force a user interaction with audio to show volume controls
+                    if (this.isPlaying) {
+                        this.audioElement.pause();
+                        this.audioElement.play().catch(err => console.warn('Auto-play after volume change failed:', err));
+                    }
+                }, 50);
+                
+                // Show a message to the user
+                this.showVolumeHint();
+                
+                return true;
+            }
+            
+            // Different approaches to control system volume
+            if ('mediaSession' in navigator && navigator.mediaSession.setVolume) {
+                navigator.mediaSession.setVolume(normalizedVolume);
+                return true;
+            } 
+            
+            // Try Volume Manager API if available (some mobile browsers)
+            if (navigator.volumeManager && navigator.volumeManager.setVolume) {
+                navigator.volumeManager.setVolume(normalizedVolume);
+                return true;
+            }
+            
+            // Last resort: AudioContext gain (works on some browsers but not for system volume)
+            if (this.audioContext) {
+                try {
+                    // Create a gain node if we don't have one
+                    if (!this.gainNode) {
+                        this.gainNode = this.audioContext.createGain();
+                        this.gainNode.connect(this.audioContext.destination);
+                    }
+                    
+                    // Set the gain value
+                    this.gainNode.gain.value = normalizedVolume;
+                    return true;
+                } catch (gainError) {
+                    console.warn('Gain node error:', gainError);
+                }
+            }
+            
+            return false;
+        } catch (error) {
+            console.warn('System volume control error:', error);
+            return false;
+        }
+    }
+
+    showVolumeHint() {
+        // Create volume hint message if it doesn't exist
+        let hint = document.getElementById('volume-hint');
+        if (!hint) {
+            hint = document.createElement('div');
+            hint.id = 'volume-hint';
+            hint.style.position = 'fixed';
+            hint.style.bottom = '70px';
+            hint.style.left = '50%';
+            hint.style.transform = 'translateX(-50%)';
+            hint.style.backgroundColor = 'rgba(0,0,0,0.8)';
+            hint.style.color = 'white';
+            hint.style.padding = '10px 15px';
+            hint.style.borderRadius = '20px';
+            hint.style.fontSize = '14px';
+            hint.style.zIndex = '9999';
+            hint.style.textAlign = 'center';
+            hint.style.transition = 'opacity 0.3s ease';
+            hint.style.opacity = '0';
+            document.body.appendChild(hint);
+        }
+        
+        // Set appropriate message based on device
+        let message = 'Use volume buttons to adjust system volume';
+        if (this.isIOS) {
+            message = 'Use iPhone volume buttons to change system volume';
+            
+            // If we've shown this hint many times, give more detailed instructions
+            if (this.volumeChangeCount > 6) {
+                message = 'iOS restricts apps from changing system volume. Please use your iPhone\'s physical volume buttons.';
+            }
+        }
+        
+        // Show the hint with the message
+        hint.textContent = message;
+        hint.style.opacity = '1';
+        
+        // Hide the hint after 4 seconds
+        setTimeout(() => {
+            hint.style.opacity = '0';
+            // Remove the element after fade out
+            setTimeout(() => {
+                if (hint.parentNode) {
+                    hint.parentNode.removeChild(hint);
+                }
+            }, 300);
+        }, 4000);
     }
 
     updateVolumeIcon(value) {
@@ -1115,6 +1296,99 @@ class RadioWaveApp {
     // Method no longer needed as we only have the "All" button now and search
     setFilter(filter) {
         this.loadStations();
+    }
+
+    setupMediaSession() {
+        try {
+            // Detect iOS
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            this.isIOS = isIOS;
+            
+            // Initialize AudioContext for potential volume control
+            if (!this.audioContext && (window.AudioContext || window.webkitAudioContext)) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Create a connection to the audio element through the AudioContext
+                // Skip for iOS since it often causes issues
+                if (this.audioElement && this.audioContext && !isIOS) {
+                    try {
+                        const source = this.audioContext.createMediaElementSource(this.audioElement);
+                        source.connect(this.audioContext.destination);
+                    } catch (error) {
+                        console.warn('Could not connect audio element to context:', error);
+                    }
+                }
+                
+                // On iOS, we'll use a different approach for volume, but mark as supported
+                if (isIOS) {
+                    this.systemVolumeSupported = true;
+                    console.log('Using iOS-specific volume control approach');
+                }
+                // Check if the browser supports system volume control via MediaSession
+                else if ('mediaSession' in navigator) {
+                    if (navigator.mediaSession.setVolume) {
+                        this.systemVolumeSupported = true;
+                        console.log('System volume control is supported via MediaSession API');
+                    }
+                }
+                
+                // Check for other volume control APIs
+                if (navigator.volumeManager && navigator.volumeManager.setVolume) {
+                    this.systemVolumeSupported = true;
+                    console.log('System volume control is supported via Volume Manager API');
+                }
+                
+                // Setup media session controls - these will work on iOS for playback controls
+                // but not for volume control
+                if ('mediaSession' in navigator) {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: 'RadioWave',
+                        artist: 'Tuning...',
+                        album: 'RadioWave App',
+                        artwork: [
+                            { src: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+                            { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' }
+                        ]
+                    });
+                    
+                    // Set action handlers for media keys
+                    navigator.mediaSession.setActionHandler('play', () => this.togglePlayPause());
+                    navigator.mediaSession.setActionHandler('pause', () => this.togglePlayPause());
+                    navigator.mediaSession.setActionHandler('nexttrack', () => this.playNext());
+                    navigator.mediaSession.setActionHandler('previoustrack', () => this.playPrevious());
+                }
+            }
+        } catch (error) {
+            console.warn('Media session setup error:', error);
+            this.systemVolumeSupported = false;
+        }
+    }
+    
+    updateMediaSession() {
+        if (!('mediaSession' in navigator)) return;
+        
+        try {
+            // Update media session metadata with current playing info
+            const title = this.currentStation ? this.currentStation.name : 
+                          this.currentMusic ? this.currentMusic.name : 'RadioWave';
+            const artist = this.currentStation ? 'Radio Station' : 
+                           this.currentMusic ? this.currentMusic.artist || 'Local Music' : 'Tuning...';
+            
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: title,
+                artist: artist,
+                album: 'RadioWave App',
+                artwork: [
+                    { src: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+                    { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' }
+                ]
+            });
+            
+            // Update playback state
+            navigator.mediaSession.playbackState = this.isPlaying ? 'playing' : 'paused';
+        } catch (error) {
+            console.warn('Media session update error:', error);
+        }
     }
 }
 

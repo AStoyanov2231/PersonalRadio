@@ -4,6 +4,13 @@
     box-sizing: border-box;
 }
 
+/* Prevent thin text on iOS */
+button {
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
 :root {
     --primary-color: #1db954;
     --primary-dark: #1ed760;
