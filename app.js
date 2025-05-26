@@ -29,12 +29,40 @@ class RadioWaveApp {
         this.audioContext = null;
         this.debounceTimer = null;
         
+        // Audio preloading
+        this.preloadedStations = new Map();
+        this.preloadLimit = 5; // Maximum number of stations to preload
+        this.playAttempts = 0; // Track play attempts for fallbacks
+        this.maxPlayAttempts = 3; // Maximum attempts before showing error
+        
+        // Create secondary audio element for preloading
+        this.preloadAudio = new Audio();
+        
+        // Supported audio formats - check which are supported by the browser
+        this.supportedFormats = {
+            mp3: false,
+            aac: false,
+            ogg: false,
+            opus: false,
+            flac: false,
+            webm: false,
+            hls: false
+        };
+        
+        // Compatible station codecs by preference (highest to lowest)
+        this.preferredCodecs = ['MP3', 'AAC', 'AAC+', 'OGG', 'OPUS', 'FLAC'];
+        
+        // HLS.js instance
+        this.hlsPlayer = null;
+        
         this.init();
     }
 
     async init() {
         console.log('Initializing RadioWave App');
         
+        this.detectSupportedFormats();
+        this.checkHlsSupport();
         this.setupEventListeners();
         this.setupOrientationHandling();
         this.setupServiceWorker();
@@ -48,6 +76,72 @@ class RadioWaveApp {
         
         // Setup media session for controlling system media
         this.setupMediaSession();
+    }
+
+    checkHlsSupport() {
+        // Check for native HLS support
+        const hasNativeHLS = this.audioElement.canPlayType('application/vnd.apple.mpegurl') || 
+                           this.audioElement.canPlayType('application/x-mpegURL');
+        
+        this.supportedFormats.hls = !!hasNativeHLS.replace(/no/, '');
+        
+        // If HLS.js is available, we can also support HLS even without native support
+        if (window.Hls && Hls.isSupported()) {
+            console.log('HLS.js is supported in this browser');
+            this.supportedFormats.hlsJs = true;
+            // Even if native HLS isn't supported, we can use HLS.js
+            if (!this.supportedFormats.hls) {
+                console.log('No native HLS support, but HLS.js is available');
+                this.supportedFormats.hls = true;
+            }
+        } else {
+            console.log('HLS.js is not supported in this browser');
+            this.supportedFormats.hlsJs = false;
+        }
+    }
+
+    async init() {
+        console.log('Initializing RadioWave App');
+        
+        this.detectSupportedFormats();
+        this.setupEventListeners();
+        this.setupOrientationHandling();
+        this.setupServiceWorker();
+        await this.loadStations();
+        this.renderFavorites();
+        this.renderMyMusic();
+        // Set initial volume based on loaded value
+        this.setVolume(this.volume);
+        this.updatePlayerState();
+        this.checkOrientation();
+        
+        // Setup media session for controlling system media
+        this.setupMediaSession();
+    }
+
+    detectSupportedFormats() {
+        // Check for MP3 support
+        this.supportedFormats.mp3 = !!this.audioElement.canPlayType('audio/mpeg;').replace(/no/, '');
+        
+        // Check for AAC support
+        this.supportedFormats.aac = !!this.audioElement.canPlayType('audio/aac;').replace(/no/, '');
+        
+        // Check for OGG support
+        this.supportedFormats.ogg = !!this.audioElement.canPlayType('audio/ogg; codecs="vorbis"').replace(/no/, '');
+        
+        // Check for OPUS support
+        this.supportedFormats.opus = !!this.audioElement.canPlayType('audio/ogg; codecs="opus"').replace(/no/, '');
+        
+        // Check for FLAC support
+        this.supportedFormats.flac = !!this.audioElement.canPlayType('audio/flac;').replace(/no/, '');
+        
+        // Check for WebM support
+        this.supportedFormats.webm = !!this.audioElement.canPlayType('audio/webm;').replace(/no/, '');
+        
+        // Check for HLS support
+        this.supportedFormats.hls = !!this.audioElement.canPlayType('application/vnd.apple.mpegurl').replace(/no/, '');
+        
+        console.log('Supported audio formats:', this.supportedFormats);
     }
 
     setupEventListeners() {
@@ -220,8 +314,15 @@ class RadioWaveApp {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             this.stations = await response.json();
+            
+            // Filter stations by compatibility
+            this.filterCompatibleStations();
+            
             this.renderStations();
             this.apiRetryCount = 0; // Reset retry count on success
+            
+            // Preload top 5 stations for faster initial playback
+            this.preloadTopStations();
         } catch (error) {
             console.error('Failed to load stations:', error);
             
@@ -237,6 +338,133 @@ class RadioWaveApp {
             this.showError('Failed to load radio stations. Please check your connection and try again.');
         }
         this.hideLoading();
+    }
+
+    filterCompatibleStations() {
+        // Mark stations as compatible or incompatible based on detected browser support
+        this.stations = this.stations.map(station => {
+            // Extract codec info - normalize to uppercase for comparison
+            const codec = (station.codec || '').toUpperCase();
+            
+            // Check if the station uses HLS (HTTP Live Streaming)
+            const isHLS = station.hls === 1 || 
+                          (station.url && (station.url.includes('.m3u8') || station.url.includes('playlist.m3u'))) ||
+                          (station.url_resolved && (station.url_resolved.includes('.m3u8') || station.url_resolved.includes('playlist.m3u')));
+            
+            // Check if it's an HLS stream and if the browser supports it
+            if (isHLS && this.supportedFormats.hls) {
+                station.compatibilityScore = 100; // Highest priority for HLS
+                station.isCompatible = true;
+                return station;
+            }
+            
+            // Check codec compatibility and assign a score
+            // Higher score = higher preference/compatibility
+            let compatibilityScore = 0;
+            
+            if (codec.includes('MP3') && this.supportedFormats.mp3) {
+                compatibilityScore = 95; // Very high compatibility
+            } else if ((codec.includes('AAC') || codec.includes('AAC+')) && this.supportedFormats.aac) {
+                compatibilityScore = 90;
+            } else if (codec.includes('OGG') && this.supportedFormats.ogg) {
+                compatibilityScore = 85;
+            } else if (codec.includes('OPUS') && this.supportedFormats.opus) {
+                compatibilityScore = 80;
+            } else if (codec.includes('FLAC') && this.supportedFormats.flac) {
+                compatibilityScore = 75;
+            } else if (!codec || codec === '') {
+                // Unknown codec, try to guess from URL
+                if ((station.url && station.url.includes('.mp3')) || 
+                    (station.url_resolved && station.url_resolved.includes('.mp3'))) {
+                    compatibilityScore = 70; // Assume MP3 based on URL
+                } else {
+                    compatibilityScore = 50; // Unknown but might work
+                }
+            } else {
+                compatibilityScore = 30; // Known incompatible codec
+            }
+            
+            // Additional factors to consider
+            
+            // Prefer stations that have been checked recently and are working
+            if (station.lastcheckok === 1) {
+                compatibilityScore += 10;
+            }
+            
+            // Prefer stations with higher bitrates but not too high (for performance)
+            if (station.bitrate > 0) {
+                if (station.bitrate >= 128 && station.bitrate <= 320) {
+                    compatibilityScore += 5; // Ideal bitrate range
+                } else if (station.bitrate > 320) {
+                    compatibilityScore -= 5; // Might cause issues on slower connections
+                }
+            }
+            
+            // Mark as compatible if score is above threshold
+            station.compatibilityScore = compatibilityScore;
+            station.isCompatible = compatibilityScore >= 50;
+            
+            return station;
+        });
+        
+        // Sort stations by compatibility score (highest first)
+        this.stations.sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+    }
+
+    preloadTopStations() {
+        // Clear existing preloads first
+        this.preloadedStations.clear();
+        
+        // Only preload top N stations to save resources
+        const stationsToPreload = this.stations.slice(0, this.preloadLimit);
+        
+        stationsToPreload.forEach(station => {
+            this.preloadStation(station);
+        });
+    }
+    
+    preloadStation(station) {
+        if (!station || !station.url) return;
+        
+        const stationId = station.stationuuid || station.uuid;
+        if (!stationId) return;
+        
+        // Skip if already preloaded
+        if (this.preloadedStations.has(stationId)) return;
+        
+        // Create an object to track preload status
+        const preloadInfo = {
+            url: station.url,
+            urlResolved: station.url_resolved,
+            status: 'pending',
+            audio: null
+        };
+        
+        this.preloadedStations.set(stationId, preloadInfo);
+        
+        // Start preloading in background
+        setTimeout(() => {
+            // Use fetch with HEAD request to check if stream is accessible
+            fetch(station.url, { method: 'HEAD', mode: 'no-cors' })
+                .then(() => {
+                    preloadInfo.status = 'ready';
+                })
+                .catch(() => {
+                    // Try alternate URL if available
+                    if (station.url_resolved && station.url_resolved !== station.url) {
+                        fetch(station.url_resolved, { method: 'HEAD', mode: 'no-cors' })
+                            .then(() => {
+                                preloadInfo.status = 'ready';
+                                preloadInfo.preferResolved = true;
+                            })
+                            .catch(() => {
+                                preloadInfo.status = 'error';
+                            });
+                    } else {
+                        preloadInfo.status = 'error';
+                    }
+                });
+        }, 0);
     }
 
     async searchStations(query) {
@@ -256,6 +484,10 @@ class RadioWaveApp {
             }
             
             this.stations = await response.json();
+            
+            // Filter for compatible stations
+            this.filterCompatibleStations();
+            
             this.renderStations();
             this.apiRetryCount = 0; // Reset retry count on success
         } catch (error) {
@@ -422,17 +654,30 @@ class RadioWaveApp {
              this.currentStation.uuid === station.uuid)
         );
         
+        // Optimize image loading with loading="lazy" and use placeholders
+        const stationImage = station.favicon ? 
+            `<img src="${station.favicon}" alt="${station.name}" loading="lazy" onerror="this.onerror=null; this.innerHTML='<i class=\'fas fa-radio\'></i>'" style="width: 100%; height: 100%; object-fit: cover; border-radius: 8px;">` : 
+            '<i class="fas fa-radio"></i>';
+        
+        // Add compatibility indicator
+        const compatibilityClass = station.isCompatible ? 'compatible' : 'incompatible';
+        const compatibilityIcon = station.isCompatible ? 
+            '<span class="compatibility-badge compatible"><i class="fas fa-check"></i></span>' : 
+            '<span class="compatibility-badge incompatible"><i class="fas fa-exclamation-triangle"></i></span>';
+        
+        // Format codec and bitrate info
+        const codecInfo = station.codec ? `${station.codec}${station.bitrate ? ' ' + station.bitrate + 'kbps' : ''}` : '';
+        
         return `
-            <div class="station-card ${isActive ? 'active' : ''}" data-station-id="${stationId}">
+            <div class="station-card ${isActive ? 'active' : ''} ${compatibilityClass}" data-station-id="${stationId}">
                 <div class="station-info">
                     <div class="station-avatar">
-                        ${station.favicon ? 
-                            `<img src="${station.favicon}" alt="${station.name}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 8px;">` : 
-                            '<i class="fas fa-radio"></i>'
-                        }
+                        ${stationImage}
+                        ${compatibilityIcon}
                     </div>
                     <div class="station-details">
                         <h3>${station.name || 'Unknown Station'}</h3>
+                        ${codecInfo ? `<small class="codec-info">${codecInfo}</small>` : ''}
                     </div>
                 </div>
                 <div class="station-actions">
@@ -597,6 +842,9 @@ class RadioWaveApp {
     async playStation(station) {
         console.log('Playing station:', station.name);
         
+        // Reset play attempts counter
+        this.playAttempts = 0;
+        
         // Check if this station is already playing
         if (this.currentStation && this.isPlaying) {
             // Check both uuid and stationuuid fields
@@ -620,42 +868,17 @@ class RadioWaveApp {
         try {
             // Reset audio element
             this.audioElement.pause();
+            this.audioElement.removeAttribute('src');
+            this.audioElement.load();
+            
+            // Destroy any existing HLS.js instance
+            this.destroyHlsInstance();
             
             // Clear any previous errors
             this.audioElement.onerror = null;
             
-            // Configure audio element
-            this.audioElement.crossOrigin = "anonymous"; // Add CORS support
-            this.audioElement.src = station.url;
-            
-            // Add error event listener
-            this.audioElement.onerror = (e) => {
-                console.error('Audio element error:', e);
-                
-                // Try alternative URL format if available
-                if (station.url_resolved && station.url_resolved !== station.url) {
-                    console.log('Trying alternative URL:', station.url_resolved);
-                    this.audioElement.src = station.url_resolved;
-                    this.audioElement.load();
-                    this.audioElement.play().catch(error => {
-                        console.error('Error playing alternative URL:', error);
-                        this.handleAudioError();
-                    });
-                    return;
-                }
-                
-                this.handleAudioError();
-            };
-            
-            // Set timeout for stalled connections
-            const playbackTimeout = setTimeout(() => {
-                if (!this.isPlaying) {
-                    console.log('Playback timed out');
-                    this.handleAudioError();
-                }
-            }, 10000); // 10 second timeout
-            
             // Make sure both uuid and stationuuid are set if available
+            const stationId = station.uuid || station.stationuuid;
             if (station.uuid && !station.stationuuid) {
                 station.stationuuid = station.uuid;
             } else if (station.stationuuid && !station.uuid) {
@@ -667,44 +890,489 @@ class RadioWaveApp {
             this.currentStation.type = 'radio'; // Explicitly set type
             this.currentMusic = null;
             
-            // Start playing
-            const playPromise = this.audioElement.play();
+            // Check if we've preloaded this station
+            const preloadInfo = this.preloadedStations.get(stationId);
             
+            // Configure audio element for low latency
+            this.audioElement.crossOrigin = "anonymous";
+            this.audioElement.preload = "auto";
+            
+            // Handle HLS streams specially
+            const isHLS = station.hls === 1 || 
+                         (station.url && station.url.includes('.m3u8')) ||
+                         (station.url_resolved && station.url_resolved.includes('.m3u8'));
+            
+            // Set a shorter audio buffer for faster startup
+            if (this.audioContext) {
+                try {
+                    // Attempt to reduce latency where supported
+                    if (this.audioContext.baseLatency !== undefined) {
+                        console.log('Using low latency audio mode');
+                    }
+                } catch (e) {
+                    // Ignore if not supported
+                }
+            }
+            
+            // Set timeout for stalled connections - shorter for better UX
+            const playbackTimeout = setTimeout(() => {
+                if (!this.isPlaying) {
+                    console.log('Playback timed out, trying alternative URL');
+                    this.tryAlternativeUrl(station);
+                }
+            }, 5000); // 5 second timeout (reduced from 10s)
+            
+            // Setup error handler
+            this.setupAudioErrorHandling(station, playbackTimeout);
+            
+            // Determine which URL to use first based on preload info
+            let primaryUrl = station.url;
+            let fallbackUrl = station.url_resolved;
+            
+            // If it's an HLS stream, prioritize it for supported browsers
+            if (isHLS) {
+                if (station.url && station.url.includes('.m3u8')) {
+                    primaryUrl = station.url;
+                } else if (station.url_resolved && station.url_resolved.includes('.m3u8')) {
+                    primaryUrl = station.url_resolved;
+                }
+            }
+            // Otherwise use preload info if available
+            else if (preloadInfo && preloadInfo.status === 'ready' && preloadInfo.preferResolved) {
+                // Swap URLs if preloading found resolved URL works better
+                primaryUrl = station.url_resolved;
+                fallbackUrl = station.url;
+            }
+            
+            // Check URLs for file extensions to ensure compatibility
+            if (primaryUrl && !this.isUrlLikelyCompatible(primaryUrl) && 
+                fallbackUrl && this.isUrlLikelyCompatible(fallbackUrl)) {
+                // Swap if primary URL doesn't seem compatible but fallback does
+                [primaryUrl, fallbackUrl] = [fallbackUrl, primaryUrl];
+            }
+            
+            console.log('Starting playback with URL:', primaryUrl);
+            
+            // Track station play - wrapped in try/catch to avoid failure
+            try {
+                // Try both uuid and stationuuid
+                this.countStationClick(station.stationuuid || station.uuid);
+            } catch (clickError) {
+                console.log('Failed to count click:', clickError);
+            }
+            
+            // Check if this is an HLS stream and handle accordingly
+            if (isHLS) {
+                this.playHlsStream(primaryUrl, fallbackUrl, playbackTimeout);
+            } else {
+                // Set the source and play normal stream
+                this.audioElement.src = primaryUrl;
+                
+                // Try to initiate playback faster by setting src and calling load before play
+                this.audioElement.load();
+                
+                // Start playing
+                const playPromise = this.audioElement.play();
+                
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        clearTimeout(playbackTimeout);
+                        this.isPlaying = true;
+                        this.updatePlayerState();
+                        this.updateMediaSession(); // Update media session with current station
+                        this.hideLoading();
+                        
+                        // Preload next station for faster switching
+                        this.preloadNextStation();
+                    }).catch(error => {
+                        clearTimeout(playbackTimeout);
+                        console.error('Error playing audio:', error);
+                        
+                        // Try alternative URL if available
+                        this.tryAlternativeUrl(station);
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Error setting up audio:', error);
+            this.handleAudioError();
+        }
+    }
+    
+    playHlsStream(primaryUrl, fallbackUrl, playbackTimeout) {
+        // Check if we need to use HLS.js or native HLS support
+        const hasNativeHLS = !!this.audioElement.canPlayType('application/vnd.apple.mpegurl').replace(/no/, '');
+        
+        if (hasNativeHLS) {
+            console.log('Using native HLS support');
+            this.audioElement.src = primaryUrl;
+            this.audioElement.load();
+            
+            const playPromise = this.audioElement.play();
             if (playPromise !== undefined) {
                 playPromise.then(() => {
                     clearTimeout(playbackTimeout);
                     this.isPlaying = true;
                     this.updatePlayerState();
-                    this.updateMediaSession(); // Update media session with current station
+                    this.updateMediaSession();
                     this.hideLoading();
-                    
-                    // Track station play - wrapped in try/catch to avoid failure
-                    try {
-                        // Try both uuid and stationuuid
-                        this.countStationClick(station.stationuuid || station.uuid);
-                    } catch (clickError) {
-                        console.log('Failed to count click:', clickError);
-                    }
+                    this.preloadNextStation();
                 }).catch(error => {
                     clearTimeout(playbackTimeout);
-                    console.error('Error playing audio:', error);
+                    console.error('Error playing HLS with native support:', error);
                     
-                    // Try alternative URL if available
-                    if (station.url_resolved && station.url_resolved !== station.url) {
-                        console.log('Trying alternative URL after play failure:', station.url_resolved);
-                        this.audioElement.src = station.url_resolved;
-                        return this.audioElement.play().catch(secondError => {
-                            console.error('Error playing alternative URL:', secondError);
-                            this.handleAudioError();
-                        });
+                    // Try HLS.js as a fallback if available
+                    if (window.Hls && Hls.isSupported()) {
+                        console.log('Falling back to HLS.js after native failure');
+                        this.setupHlsJs(primaryUrl, fallbackUrl, playbackTimeout);
+                    } else {
+                        this.tryAlternativeUrl(this.currentStation);
                     }
-                    
-                    this.handleAudioError();
                 });
             }
+        } 
+        // Use HLS.js if available
+        else if (window.Hls && Hls.isSupported()) {
+            console.log('Using HLS.js for HLS playback');
+            this.setupHlsJs(primaryUrl, fallbackUrl, playbackTimeout);
+        } 
+        // Neither native support nor HLS.js available, try direct playback
+        else {
+            console.log('No HLS support available, trying direct playback');
+            this.audioElement.src = primaryUrl;
+            this.audioElement.load();
+            
+            const playPromise = this.audioElement.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    clearTimeout(playbackTimeout);
+                    this.isPlaying = true;
+                    this.updatePlayerState();
+                    this.updateMediaSession();
+                    this.hideLoading();
+                    this.preloadNextStation();
+                }).catch(error => {
+                    clearTimeout(playbackTimeout);
+                    console.error('Error playing HLS without support:', error);
+                    this.tryAlternativeUrl(this.currentStation);
+                });
+            }
+        }
+    }
+    
+    setupHlsJs(url, fallbackUrl, playbackTimeout) {
+        try {
+            // Destroy any existing instance
+            this.destroyHlsInstance();
+            
+            // Create a new HLS.js instance
+            this.hlsPlayer = new Hls({
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60,
+                enableWorker: true,
+                lowLatencyMode: true
+            });
+            
+            // Bind HLS.js to the audio element
+            this.hlsPlayer.attachMedia(this.audioElement);
+            
+            // Events
+            this.hlsPlayer.on(Hls.Events.MEDIA_ATTACHED, () => {
+                console.log('HLS.js attached to audio element');
+                this.hlsPlayer.loadSource(url);
+            });
+            
+            this.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                console.log('HLS manifest parsed, found ' + data.levels.length + ' quality levels');
+                
+                // Start playback
+                const playPromise = this.audioElement.play();
+                
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        clearTimeout(playbackTimeout);
+                        this.isPlaying = true;
+                        this.updatePlayerState();
+                        this.updateMediaSession();
+                        this.hideLoading();
+                        this.preloadNextStation();
+                    }).catch(error => {
+                        clearTimeout(playbackTimeout);
+                        console.error('Error playing with HLS.js:', error);
+                        
+                        // Try fallback URL directly
+                        if (fallbackUrl && fallbackUrl !== url) {
+                            console.log('Trying fallback URL after HLS.js failure');
+                            this.destroyHlsInstance();
+                            this.audioElement.src = fallbackUrl;
+                            this.audioElement.load();
+                            this.audioElement.play().catch(err => {
+                                console.error('Fallback URL also failed:', err);
+                                this.handleAudioError();
+                            });
+                        } else {
+                            this.handleAudioError();
+                        }
+                    });
+                }
+            });
+            
+            // Error handling
+            this.hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    console.error('Fatal HLS.js error:', data.type, data.details);
+                    
+                    switch(data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            // Try to recover network error
+                            console.log('Fatal network error, trying to recover');
+                            this.hlsPlayer.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log('Fatal media error, trying to recover');
+                            this.hlsPlayer.recoverMediaError();
+                            break;
+                        default:
+                            // Cannot recover, try alternative URL
+                            this.destroyHlsInstance();
+                            this.tryAlternativeUrl(this.currentStation);
+                            break;
+                    }
+                } else {
+                    console.warn('Non-fatal HLS.js error:', data.type, data.details);
+                }
+            });
         } catch (error) {
-            console.error('Error setting up audio:', error);
+            console.error('Error setting up HLS.js:', error);
+            // Fall back to direct URL playback
+            this.audioElement.src = url;
+            this.audioElement.load();
+            this.audioElement.play().catch(err => {
+                console.error('Direct playback also failed:', err);
+                this.handleAudioError();
+            });
+        }
+    }
+    
+    destroyHlsInstance() {
+        if (this.hlsPlayer) {
+            console.log('Destroying HLS.js instance');
+            this.hlsPlayer.destroy();
+            this.hlsPlayer = null;
+        }
+    }
+    
+    isUrlLikelyCompatible(url) {
+        if (!url) return false;
+        
+        const lowerUrl = url.toLowerCase();
+        
+        // Check for direct audio file extensions
+        if (lowerUrl.endsWith('.mp3') && this.supportedFormats.mp3) return true;
+        if (lowerUrl.endsWith('.aac') && this.supportedFormats.aac) return true;
+        if (lowerUrl.endsWith('.ogg') && this.supportedFormats.ogg) return true;
+        if (lowerUrl.endsWith('.opus') && this.supportedFormats.opus) return true;
+        if (lowerUrl.endsWith('.flac') && this.supportedFormats.flac) return true;
+        
+        // Check for streaming formats
+        if ((lowerUrl.endsWith('.m3u8') || lowerUrl.includes('playlist.m3u')) && this.supportedFormats.hls) return true;
+        
+        // Check for streaming servers
+        if (lowerUrl.includes('icecast') || lowerUrl.includes('shoutcast')) return true;
+        
+        // Look for common streaming patterns
+        if (lowerUrl.includes('/stream') || lowerUrl.includes('/live')) return true;
+        
+        // Unknown format - might still work
+        return false;
+    }
+    
+    setupAudioErrorHandling(station, playbackTimeout) {
+        // Add error event listener
+        this.audioElement.onerror = (e) => {
+            clearTimeout(playbackTimeout);
+            console.error('Audio element error:', e);
+            
+            this.tryAlternativeUrl(station);
+        };
+        
+        // Add stalled event listener for streams that hang
+        this.audioElement.onstalled = () => {
+            console.log('Playback stalled, attempting recovery');
+            
+            // If already playing, don't interrupt, just try to recover
+            if (this.isPlaying) {
+                // Try to recover without showing error
+                this.audioElement.load();
+                this.audioElement.play().catch(error => {
+                    console.error('Stall recovery failed:', error);
+                });
+            } else {
+                this.tryAlternativeUrl(station);
+            }
+        };
+    }
+    
+    tryAlternativeUrl(station) {
+        this.playAttempts++;
+        
+        // If we've tried too many times, show error
+        if (this.playAttempts >= this.maxPlayAttempts) {
             this.handleAudioError();
+            return;
+        }
+        
+        // Use a race approach - try both URLs simultaneously and use the first one that works
+        if (station.url && station.url_resolved && station.url !== station.url_resolved) {
+            console.log('Trying both URLs in parallel for faster loading');
+            
+            // Create temporary audio elements to test both streams
+            const audioTest1 = new Audio();
+            const audioTest2 = new Audio();
+            
+            // Set a short timeout for each test
+            const timeout = 3000;
+            let resolved = false;
+            
+            // Promise-based race to see which URL loads faster
+            Promise.race([
+                // Try the first URL
+                new Promise((resolve, reject) => {
+                    audioTest1.src = station.url;
+                    
+                    // Set event handlers
+                    audioTest1.oncanplay = () => resolve({ url: station.url, element: audioTest1 });
+                    audioTest1.onerror = () => reject(new Error('First URL failed'));
+                    
+                    // Set timeout
+                    setTimeout(() => reject(new Error('First URL timeout')), timeout);
+                    
+                    // Start loading
+                    audioTest1.load();
+                }),
+                
+                // Try the second URL
+                new Promise((resolve, reject) => {
+                    audioTest2.src = station.url_resolved;
+                    
+                    // Set event handlers
+                    audioTest2.oncanplay = () => resolve({ url: station.url_resolved, element: audioTest2 });
+                    audioTest2.onerror = () => reject(new Error('Second URL failed'));
+                    
+                    // Set timeout
+                    setTimeout(() => reject(new Error('Second URL timeout')), timeout);
+                    
+                    // Start loading
+                    audioTest2.load();
+                })
+            ])
+            .then(result => {
+                if (resolved) return;
+                resolved = true;
+                
+                console.log('Parallel loading succeeded with URL:', result.url);
+                
+                // Clean up test elements
+                audioTest1.src = '';
+                audioTest2.src = '';
+                
+                // Use the successful URL
+                this.audioElement.src = result.url;
+                this.audioElement.load();
+                return this.audioElement.play();
+            })
+            .then(() => {
+                this.isPlaying = true;
+                this.updatePlayerState();
+                this.hideLoading();
+            })
+            .catch(error => {
+                console.error('Parallel loading failed:', error);
+                
+                // Fall back to sequential approach if parallel fails
+                if (!resolved) {
+                    resolved = true;
+                    this.trySequentialUrls(station);
+                }
+            });
+            
+            return;
+        }
+        
+        // If we only have one URL or they're the same, use sequential approach
+        this.trySequentialUrls(station);
+    }
+    
+    trySequentialUrls(station) {
+        // Try resolved URL if it exists and is different
+        if (station.url_resolved && station.url_resolved !== this.audioElement.src) {
+            console.log('Trying alternative URL:', station.url_resolved);
+            this.audioElement.src = station.url_resolved;
+            this.audioElement.load();
+            this.audioElement.play().catch(error => {
+                console.error('Error playing alternative URL:', error);
+                
+                // Try original URL if different from current and resolved
+                if (station.url && station.url !== station.url_resolved && station.url !== this.audioElement.src) {
+                    console.log('Trying original URL:', station.url);
+                    this.audioElement.src = station.url;
+                    this.audioElement.load();
+                    this.audioElement.play().catch(finalError => {
+                        console.error('Error playing original URL:', finalError);
+                        this.handleAudioError();
+                    });
+                } else {
+                    this.handleAudioError();
+                }
+            });
+            return;
+        }
+        
+        // Try original URL if it exists and is different
+        if (station.url && station.url !== this.audioElement.src) {
+            console.log('Trying original URL:', station.url);
+            this.audioElement.src = station.url;
+            this.audioElement.load();
+            this.audioElement.play().catch(error => {
+                console.error('Error playing original URL:', error);
+                this.handleAudioError();
+            });
+            return;
+        }
+        
+        // If we get here, we've tried all URLs or they're all the same, show error
+        this.handleAudioError();
+    }
+    
+    preloadNextStation() {
+        // Get current list of stations
+        const currentList = this.getCurrentPlaylist();
+        if (currentList.length === 0) return;
+
+        let currentIndex = -1;
+        
+        // Find current station in the list
+        if (this.currentStation) {
+            if (this.currentStation.type === 'radio') {
+                currentIndex = currentList.findIndex(item => 
+                    (item.stationuuid && this.currentStation.stationuuid && 
+                     item.stationuuid === this.currentStation.stationuuid) || 
+                    (item.uuid && this.currentStation.uuid && 
+                     item.uuid === this.currentStation.uuid)
+                );
+            }
+        }
+        
+        // If current station wasn't found, don't preload
+        if (currentIndex === -1) return;
+        
+        // Get next station index
+        const nextIndex = (currentIndex + 1) % currentList.length;
+        const nextStation = currentList[nextIndex];
+        
+        // Preload next station
+        if (nextStation && nextStation.type !== 'local') {
+            this.preloadStation(nextStation);
         }
     }
 
@@ -1385,7 +2053,21 @@ class RadioWaveApp {
         let errorMessage = 'Audio playback error.';
         
         if (this.currentStation) {
-            errorMessage += ` The station "${this.currentStation.name}" might be offline or unavailable.`;
+            // Check codec compatibility
+            const codec = (this.currentStation.codec || '').toUpperCase();
+            const isCompatibleCodec = 
+                (codec.includes('MP3') && this.supportedFormats.mp3) ||
+                ((codec.includes('AAC') || codec.includes('AAC+')) && this.supportedFormats.aac) ||
+                (codec.includes('OGG') && this.supportedFormats.ogg) ||
+                (codec.includes('OPUS') && this.supportedFormats.opus) ||
+                (codec.includes('FLAC') && this.supportedFormats.flac);
+            
+            // Different message based on codec compatibility
+            if (!isCompatibleCodec && codec) {
+                errorMessage = `Your browser doesn't support the ${codec} format used by "${this.currentStation.name}". Try another station.`;
+            } else {
+                errorMessage += ` The station "${this.currentStation.name}" might be offline or unavailable.`;
+            }
             
             // Check if the station URL might have been blocked by CORS
             if (this.currentStation.url && (

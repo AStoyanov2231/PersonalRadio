@@ -58,4 +58,48 @@
     .error-toast {
         bottom: 70px;
     }
+}
+
+/* Adding compatibility badge styles */
+.station-avatar {
+    position: relative;
+}
+
+.compatibility-badge {
+    position: absolute;
+    bottom: -5px;
+    right: -5px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: white;
+    z-index: 5;
+}
+
+.compatibility-badge.compatible {
+    background-color: #4caf50;
+}
+
+.compatibility-badge.incompatible {
+    background-color: #ff9800;
+}
+
+.station-card.incompatible {
+    opacity: 0.8;
+}
+
+.codec-info {
+    font-size: 11px;
+    color: var(--secondary-text-color);
+    margin-top: 2px;
+    display: block;
+}
+
+/* Optional: Improve visibility of codec info with a subtle background */
+.station-details {
+    width: 100%;
 } 

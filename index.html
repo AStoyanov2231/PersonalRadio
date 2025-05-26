@@ -24,6 +24,9 @@
     
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- HLS.js for broader HLS streaming support -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
     <!-- iOS Status Bar Fix -->
@@ -234,7 +237,7 @@
     </div>
 
     <!-- Audio Element -->
-    <audio id="audioElement" preload="auto" crossorigin="anonymous"></audio>
+    <audio id="audioElement" preload="auto" crossorigin="anonymous" autoplay="false" x-webkit-airplay="allow" playsinline="true"></audio>
 
     <!-- Scripts -->
     <script src="app.js"></script>
