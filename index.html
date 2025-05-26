@@ -12,6 +12,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="RadioWave">
+    <meta name="application-name" content="RadioWave">
     
     <!-- Icons -->    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192x192.png">    <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512x512.png">    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">    <link rel="apple-touch-icon" sizes="152x152" href="./icons/icon-152x152.png">    <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-192x192.png">
     
@@ -23,10 +24,8 @@
     <link rel="stylesheet" href="css/ios-fixes.css">
     
     <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- HLS.js for broader HLS streaming support -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" 
+          onerror="this.onerror=null;this.href='css/fallback/fontawesome.min.css';">
 </head>
 <body>
     <!-- iOS Status Bar Fix -->
@@ -67,7 +66,7 @@
                 <i class="fas fa-heart"></i>
                 <span>Favorites</span>
             </button>
-            <button class="nav-item" data-section="my-stations">
+            <button class="nav-item" data-section="my-music">
                 <i class="fas fa-music"></i>
                 <span>My Music</span>
             </button>
@@ -109,8 +108,8 @@
                 </div>
             </section>
 
-            <!-- My Stations Section -->
-            <section id="my-stations-section" class="content-section">
+            <!-- My Music Section -->
+            <section id="my-music-section" class="content-section">
                 <div class="section-header">
                     <h2>My Music</h2>
                     <button id="uploadBtn" class="upload-btn">
@@ -185,7 +184,7 @@
                     <i class="fas fa-heart"></i>
                     <span>Favorites</span>
                 </button>
-                <button class="landscape-nav-item" data-section="my-stations">
+                <button class="landscape-nav-item" data-section="my-music">
                     <i class="fas fa-music"></i>
                     <span>My Music</span>
                 </button>
@@ -217,9 +216,9 @@
                 </div>
                 <div class="modal-body">
                     <div class="upload-area" id="uploadArea">
-                        <i class="fas fa-cloud-upload-alt"></i>
-                        <p>Drag & drop your music files here or click to browse</p>
-                        <input type="file" id="fileInput" accept="audio/*" multiple style="display: none;">
+                        <i class="fas fa-music"></i>
+                        <p>Drag & drop your MP3 files here or click to browse</p>
+                        <input type="file" id="fileInput" accept="audio/mp3,.mp3" multiple style="display: none;">
                     </div>
                 </div>
             </div>

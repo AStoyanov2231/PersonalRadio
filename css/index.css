@@ -53,53 +53,144 @@
     padding: 0 0 0 10px;
 }
 
+/* Success Toast */
+.success-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background-color: #4CAF50;
+    color: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    max-width: 90%;
+    min-width: 280px;
+    z-index: 10000;
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.success-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.success-icon {
+    margin-right: 10px;
+    font-size: 20px;
+    color: white;
+}
+
+.success-message {
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.success-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 0 0 10px;
+}
+
 /* Make sure the toast is above the bottom nav on mobile */
 @media (max-width: 768px) {
-    .error-toast {
+    .error-toast, .success-toast {
         bottom: 70px;
     }
 }
 
-/* Adding compatibility badge styles */
-.station-avatar {
-    position: relative;
+/* Offline Indicator */
+.offline-indicator {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background-color: #e74c3c;
+    color: white;
+    text-align: center;
+    padding: 4px 8px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 1000;
+    display: none;
 }
 
-.compatibility-badge {
-    position: absolute;
-    bottom: -5px;
-    right: -5px;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
+.offline-indicator i {
+    margin-right: 6px;
+}
+
+.offline-message {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-color);
+}
+
+.offline-message i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    color: var(--inactive-color);
+}
+
+.offline-message h3 {
+    margin-bottom: 0.5rem;
+    font-size: 1.2rem;
+}
+
+.offline-message p {
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+
+/* Update Toast */
+.update-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background-color: var(--card-color);
+    color: var(--text-color);
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 1000;
+    transition: transform 0.3s ease;
+    min-width: 280px;
+    max-width: 90%;
+}
+
+.update-toast.show {
+    transform: translateX(-50%) translateY(0);
+}
+
+.update-message {
+    margin-right: 12px;
+    font-weight: 500;
+}
+
+.update-button {
+    background-color: var(--primary-color);
     color: white;
-    z-index: 5;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
 }
 
-.compatibility-badge.compatible {
-    background-color: #4caf50;
-}
-
-.compatibility-badge.incompatible {
-    background-color: #ff9800;
-}
-
-.station-card.incompatible {
-    opacity: 0.8;
-}
-
-.codec-info {
-    font-size: 11px;
-    color: var(--secondary-text-color);
-    margin-top: 2px;
-    display: block;
-}
-
-/* Optional: Improve visibility of codec info with a subtle background */
-.station-details {
-    width: 100%;
+.update-button:hover {
+    background-color: var(--primary-color-dark);
 } 

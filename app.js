@@ -15,6 +15,12 @@ class RadioWaveApp {
         this.landscapeTimeout = null;
         this.currentMusic = null;
         this.systemVolumeSupported = false;
+        this.isOnline = navigator.onLine;
+        
+        // File system related properties
+        this.musicFolderHandle = null;
+        this.hasFileSystemAccess = false;
+        this.musicFolderName = 'RadioWave_Music';
         
         // Radio Browser API servers - multiple for fallbacks
         this.apiServers = [
@@ -38,37 +44,29 @@ class RadioWaveApp {
         // Create secondary audio element for preloading
         this.preloadAudio = new Audio();
         
-        // Supported audio formats - check which are supported by the browser
-        this.supportedFormats = {
-            mp3: false,
-            aac: false,
-            ogg: false,
-            opus: false,
-            flac: false,
-            webm: false,
-            hls: false
-        };
-        
-        // Compatible station codecs by preference (highest to lowest)
-        this.preferredCodecs = ['MP3', 'AAC', 'AAC+', 'OGG', 'OPUS', 'FLAC'];
-        
-        // HLS.js instance
-        this.hlsPlayer = null;
-        
         this.init();
     }
 
     async init() {
         console.log('Initializing RadioWave App');
         
-        this.detectSupportedFormats();
-        this.checkHlsSupport();
         this.setupEventListeners();
         this.setupOrientationHandling();
         this.setupServiceWorker();
-        await this.loadStations();
+        this.setupNetworkDetection();
+        
+        // Check online status
+        this.isOnline = navigator.onLine;
+        
+        // Check URL for section parameter (used by PWA shortcuts)
+        const urlParams = new URLSearchParams(window.location.search);
+        const sectionParam = urlParams.get('section');
+        
+        // Render necessary UI elements regardless of online status
         this.renderFavorites();
+        this.checkFileSystemAccess();
         this.renderMyMusic();
+        
         // Set initial volume based on loaded value
         this.setVolume(this.volume);
         this.updatePlayerState();
@@ -76,79 +74,49 @@ class RadioWaveApp {
         
         // Setup media session for controlling system media
         this.setupMediaSession();
-    }
-
-    checkHlsSupport() {
-        // Check for native HLS support
-        const hasNativeHLS = this.audioElement.canPlayType('application/vnd.apple.mpegurl') || 
-                           this.audioElement.canPlayType('application/x-mpegURL');
         
-        this.supportedFormats.hls = !!hasNativeHLS.replace(/no/, '');
-        
-        // If HLS.js is available, we can also support HLS even without native support
-        if (window.Hls && Hls.isSupported()) {
-            console.log('HLS.js is supported in this browser');
-            this.supportedFormats.hlsJs = true;
-            // Even if native HLS isn't supported, we can use HLS.js
-            if (!this.supportedFormats.hls) {
-                console.log('No native HLS support, but HLS.js is available');
-                this.supportedFormats.hls = true;
+        // Switch to the section specified in URL, if any
+        if (sectionParam && ['radio', 'favorites', 'my-music'].includes(sectionParam)) {
+            console.log(`Loading section from URL: ${sectionParam}`);
+            
+            // If offline and trying to access radio, show My Music instead
+            if (!this.isOnline && sectionParam === 'radio') {
+                console.log('App starting in offline mode - showing My Music instead of Radio');
+                setTimeout(() => {
+                    this.switchSection('my-music');
+                }, 100);
+            } else {
+                setTimeout(() => {
+                    this.switchSection(sectionParam);
+                }, 100);
             }
-        } else {
-            console.log('HLS.js is not supported in this browser');
-            this.supportedFormats.hlsJs = false;
         }
-    }
-
-    async init() {
-        console.log('Initializing RadioWave App');
-        
-        this.detectSupportedFormats();
-        this.setupEventListeners();
-        this.setupOrientationHandling();
-        this.setupServiceWorker();
-        await this.loadStations();
-        this.renderFavorites();
-        this.renderMyMusic();
-        // Set initial volume based on loaded value
-        this.setVolume(this.volume);
-        this.updatePlayerState();
-        this.checkOrientation();
-        
-        // Setup media session for controlling system media
-        this.setupMediaSession();
-    }
-
-    detectSupportedFormats() {
-        // Check for MP3 support
-        this.supportedFormats.mp3 = !!this.audioElement.canPlayType('audio/mpeg;').replace(/no/, '');
-        
-        // Check for AAC support
-        this.supportedFormats.aac = !!this.audioElement.canPlayType('audio/aac;').replace(/no/, '');
-        
-        // Check for OGG support
-        this.supportedFormats.ogg = !!this.audioElement.canPlayType('audio/ogg; codecs="vorbis"').replace(/no/, '');
-        
-        // Check for OPUS support
-        this.supportedFormats.opus = !!this.audioElement.canPlayType('audio/ogg; codecs="opus"').replace(/no/, '');
-        
-        // Check for FLAC support
-        this.supportedFormats.flac = !!this.audioElement.canPlayType('audio/flac;').replace(/no/, '');
-        
-        // Check for WebM support
-        this.supportedFormats.webm = !!this.audioElement.canPlayType('audio/webm;').replace(/no/, '');
-        
-        // Check for HLS support
-        this.supportedFormats.hls = !!this.audioElement.canPlayType('application/vnd.apple.mpegurl').replace(/no/, '');
-        
-        console.log('Supported audio formats:', this.supportedFormats);
+        // Otherwise check online status
+        else if (!this.isOnline) {
+            console.log('App starting in offline mode - showing My Music');
+            // Give a brief delay to allow UI to render first
+            setTimeout(() => {
+                this.switchSection('my-music');
+            }, 100);
+        } else {
+            // Only load stations when online
+            await this.loadStations();
+        }
     }
 
     setupEventListeners() {
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                this.switchSection(e.currentTarget.dataset.section);
+                const section = e.currentTarget.dataset.section;
+                
+                // If offline and trying to access radio section, show warning
+                if (!this.isOnline && section === 'radio') {
+                    this.showError('You are offline. Radio stations are not available.');
+                    return;
+                }
+                
+                this.switchSection(section);
             });
         });
 
@@ -276,10 +244,18 @@ class RadioWaveApp {
         // Landscape navigation
         document.querySelectorAll('.landscape-nav-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                if (e.currentTarget.dataset.section === 'upload') {
+                const section = e.currentTarget.dataset.section;
+                
+                if (section === 'upload') {
                     this.showUploadModal();
                 } else {
-                    this.switchSection(e.currentTarget.dataset.section);
+                    // If offline and trying to access radio section, show warning
+                    if (!this.isOnline && section === 'radio') {
+                        this.showError('You are offline. Radio stations are not available.');
+                        return;
+                    }
+                    
+                    this.switchSection(section);
                     this.updateLandscapeNav();
                 }
             });
@@ -292,6 +268,32 @@ class RadioWaveApp {
                 // Try relative path first for GitHub Pages compatibility
                 const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
                 console.log('Service Worker registered successfully', registration.scope);
+                
+                // Handle updates to the service worker
+                registration.addEventListener('updatefound', () => {
+                    const newWorker = registration.installing;
+                    console.log('New service worker installing...');
+                    
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // New service worker available
+                            console.log('New service worker installed and ready to take over');
+                            this.showUpdateAvailableMessage();
+                        }
+                    });
+                });
+                
+                // Listen for messages from service worker
+                navigator.serviceWorker.addEventListener('message', (event) => {
+                    if (event.data && event.data.type === 'RELOAD_PAGE') {
+                        window.location.reload();
+                    }
+                });
+                
+                // Check if there's an update on startup
+                if (registration.waiting) {
+                    this.showUpdateAvailableMessage();
+                }
             } catch (error) {
                 console.log('Service Worker registration failed:', error);
                 // Fallback to absolute path
@@ -304,8 +306,53 @@ class RadioWaveApp {
             }
         }
     }
+    
+    showUpdateAvailableMessage() {
+        const updateToast = document.createElement('div');
+        updateToast.className = 'update-toast';
+        updateToast.innerHTML = `
+            <div class="update-message">New version available</div>
+            <button class="update-button">Update Now</button>
+        `;
+        
+        // Add to body
+        document.body.appendChild(updateToast);
+        
+        // Show with animation
+        setTimeout(() => {
+            updateToast.classList.add('show');
+        }, 10);
+        
+        // Update button handler
+        updateToast.querySelector('.update-button').addEventListener('click', () => {
+            // Hide the toast
+            updateToast.classList.remove('show');
+            
+            // Tell service worker to skipWaiting
+            if (navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+                
+                // Force reload to activate the new service worker
+                window.location.reload();
+            }
+        });
+    }
 
     async loadStations() {
+        // Don't try to load stations when offline
+        if (!this.isOnline) {
+            console.log('Offline: Not loading stations');
+            document.getElementById('stations-grid').innerHTML = `
+                <div class="offline-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h3>You're offline</h3>
+                    <p>Radio stations are not available without an internet connection.</p>
+                    <p>Switch to My Music to listen to your uploaded songs.</p>
+                </div>
+            `;
+            return;
+        }
+        
         this.showLoading();
         try {
             // Load popular stations first
@@ -314,10 +361,6 @@ class RadioWaveApp {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             this.stations = await response.json();
-            
-            // Filter stations by compatibility
-            this.filterCompatibleStations();
-            
             this.renderStations();
             this.apiRetryCount = 0; // Reset retry count on success
             
@@ -338,77 +381,6 @@ class RadioWaveApp {
             this.showError('Failed to load radio stations. Please check your connection and try again.');
         }
         this.hideLoading();
-    }
-
-    filterCompatibleStations() {
-        // Mark stations as compatible or incompatible based on detected browser support
-        this.stations = this.stations.map(station => {
-            // Extract codec info - normalize to uppercase for comparison
-            const codec = (station.codec || '').toUpperCase();
-            
-            // Check if the station uses HLS (HTTP Live Streaming)
-            const isHLS = station.hls === 1 || 
-                          (station.url && (station.url.includes('.m3u8') || station.url.includes('playlist.m3u'))) ||
-                          (station.url_resolved && (station.url_resolved.includes('.m3u8') || station.url_resolved.includes('playlist.m3u')));
-            
-            // Check if it's an HLS stream and if the browser supports it
-            if (isHLS && this.supportedFormats.hls) {
-                station.compatibilityScore = 100; // Highest priority for HLS
-                station.isCompatible = true;
-                return station;
-            }
-            
-            // Check codec compatibility and assign a score
-            // Higher score = higher preference/compatibility
-            let compatibilityScore = 0;
-            
-            if (codec.includes('MP3') && this.supportedFormats.mp3) {
-                compatibilityScore = 95; // Very high compatibility
-            } else if ((codec.includes('AAC') || codec.includes('AAC+')) && this.supportedFormats.aac) {
-                compatibilityScore = 90;
-            } else if (codec.includes('OGG') && this.supportedFormats.ogg) {
-                compatibilityScore = 85;
-            } else if (codec.includes('OPUS') && this.supportedFormats.opus) {
-                compatibilityScore = 80;
-            } else if (codec.includes('FLAC') && this.supportedFormats.flac) {
-                compatibilityScore = 75;
-            } else if (!codec || codec === '') {
-                // Unknown codec, try to guess from URL
-                if ((station.url && station.url.includes('.mp3')) || 
-                    (station.url_resolved && station.url_resolved.includes('.mp3'))) {
-                    compatibilityScore = 70; // Assume MP3 based on URL
-                } else {
-                    compatibilityScore = 50; // Unknown but might work
-                }
-            } else {
-                compatibilityScore = 30; // Known incompatible codec
-            }
-            
-            // Additional factors to consider
-            
-            // Prefer stations that have been checked recently and are working
-            if (station.lastcheckok === 1) {
-                compatibilityScore += 10;
-            }
-            
-            // Prefer stations with higher bitrates but not too high (for performance)
-            if (station.bitrate > 0) {
-                if (station.bitrate >= 128 && station.bitrate <= 320) {
-                    compatibilityScore += 5; // Ideal bitrate range
-                } else if (station.bitrate > 320) {
-                    compatibilityScore -= 5; // Might cause issues on slower connections
-                }
-            }
-            
-            // Mark as compatible if score is above threshold
-            station.compatibilityScore = compatibilityScore;
-            station.isCompatible = compatibilityScore >= 50;
-            
-            return station;
-        });
-        
-        // Sort stations by compatibility score (highest first)
-        this.stations.sort((a, b) => b.compatibilityScore - a.compatibilityScore);
     }
 
     preloadTopStations() {
@@ -484,10 +456,6 @@ class RadioWaveApp {
             }
             
             this.stations = await response.json();
-            
-            // Filter for compatible stations
-            this.filterCompatibleStations();
-            
             this.renderStations();
             this.apiRetryCount = 0; // Reset retry count on success
         } catch (error) {
@@ -659,34 +627,26 @@ class RadioWaveApp {
             `<img src="${station.favicon}" alt="${station.name}" loading="lazy" onerror="this.onerror=null; this.innerHTML='<i class=\'fas fa-radio\'></i>'" style="width: 100%; height: 100%; object-fit: cover; border-radius: 8px;">` : 
             '<i class="fas fa-radio"></i>';
         
-        // Add compatibility indicator
-        const compatibilityClass = station.isCompatible ? 'compatible' : 'incompatible';
-        const compatibilityIcon = station.isCompatible ? 
-            '<span class="compatibility-badge compatible"><i class="fas fa-check"></i></span>' : 
-            '<span class="compatibility-badge incompatible"><i class="fas fa-exclamation-triangle"></i></span>';
-        
-        // Format codec and bitrate info
-        const codecInfo = station.codec ? `${station.codec}${station.bitrate ? ' ' + station.bitrate + 'kbps' : ''}` : '';
+        // Ensure station name is available and not too long
+        const stationName = station.name || 'Unknown Station';
         
         return `
-            <div class="station-card ${isActive ? 'active' : ''} ${compatibilityClass}" data-station-id="${stationId}">
+            <div class="station-card ${isActive ? 'active' : ''}" data-station-id="${stationId}">
                 <div class="station-info">
                     <div class="station-avatar">
                         ${stationImage}
-                        ${compatibilityIcon}
                     </div>
                     <div class="station-details">
-                        <h3>${station.name || 'Unknown Station'}</h3>
-                        ${codecInfo ? `<small class="codec-info">${codecInfo}</small>` : ''}
+                        <h3 title="${stationName}">${stationName}</h3>
                     </div>
-                </div>
-                <div class="station-actions">
-                    <button class="play-btn">
-                        <i class="fas ${isActive && this.isPlaying ? 'fa-pause' : 'fa-play'}"></i>
-                    </button>
-                    <button class="favorite-btn ${isFavorite ? 'active' : ''}">
-                        <i class="fas fa-heart"></i>
-                    </button>
+                    <div class="station-actions">
+                        <button class="play-btn" title="${isActive && this.isPlaying ? 'Pause' : 'Play'}">
+                            <i class="fas ${isActive && this.isPlaying ? 'fa-pause' : 'fa-play'}"></i>
+                        </button>
+                        <button class="favorite-btn ${isFavorite ? 'active' : ''}" title="${isFavorite ? 'Remove from favorites' : 'Add to favorites'}">
+                            <i class="fas fa-heart"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -711,6 +671,12 @@ class RadioWaveApp {
 
     renderMyMusic() {
         const grid = document.getElementById('my-music-grid');
+        
+        if (!grid) {
+            console.error('My Music grid element not found');
+            return;
+        }
+        
         if (this.myMusic.length === 0) {
             grid.innerHTML = `
                 <div class="empty-state">
@@ -727,25 +693,26 @@ class RadioWaveApp {
     }
 
     createMusicCard(song) {
-        const isActive = this.currentStation && this.currentStation.id === song.id;
+        // Ensure IDs are compared as strings
+        const isActive = this.currentStation && String(this.currentStation.id) === String(song.id);
         
         return `
-            <div class="station-card ${isActive ? 'active' : ''}" data-song-id="${song.id}">
+            <div class="station-card ${isActive ? 'active' : ''}" data-song-id="${String(song.id)}">
                 <div class="station-info">
                     <div class="station-avatar">
                         <i class="fas fa-music"></i>
                     </div>
                     <div class="station-details">
-                        <h3>${song.name}</h3>
+                        <h3 title="${song.name}">${song.name}</h3>
                     </div>
-                </div>
-                <div class="station-actions">
-                    <button class="play-btn">
-                        <i class="fas ${isActive && this.isPlaying ? 'fa-pause' : 'fa-play'}"></i>
-                    </button>
-                    <button class="delete-btn">
-                        <i class="fas fa-trash"></i>
-                    </button>
+                    <div class="station-actions">
+                        <button class="play-btn" title="${isActive && this.isPlaying ? 'Pause' : 'Play'}">
+                            <i class="fas ${isActive && this.isPlaying ? 'fa-pause' : 'fa-play'}"></i>
+                        </button>
+                        <button class="delete-btn" title="Delete song">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -810,7 +777,11 @@ class RadioWaveApp {
                 if (!e.target.closest('.station-actions')) {
                     const songId = card.dataset.songId;
                     const song = this.myMusic.find(s => s.id === songId);
-                    this.playLocalMusic(song);
+                    if (song) {
+                        this.playLocalMusic(song);
+                    } else {
+                        console.error('Song not found:', songId);
+                    }
                 }
             });
         });
@@ -821,11 +792,16 @@ class RadioWaveApp {
                 const songId = btn.closest('.station-card').dataset.songId;
                 const song = this.myMusic.find(s => s.id === songId);
                 
+                if (!song) {
+                    console.error('Song not found:', songId);
+                    return;
+                }
+                
                 // Check if this is the current song and toggle play/pause instead of just playing
                 if (this.currentStation && this.currentStation.id === song.id) {
                     this.togglePlayPause();
                 } else {
-                this.playLocalMusic(song);
+                    this.playLocalMusic(song);
                 }
             });
         });
@@ -871,9 +847,6 @@ class RadioWaveApp {
             this.audioElement.removeAttribute('src');
             this.audioElement.load();
             
-            // Destroy any existing HLS.js instance
-            this.destroyHlsInstance();
-            
             // Clear any previous errors
             this.audioElement.onerror = null;
             
@@ -896,11 +869,6 @@ class RadioWaveApp {
             // Configure audio element for low latency
             this.audioElement.crossOrigin = "anonymous";
             this.audioElement.preload = "auto";
-            
-            // Handle HLS streams specially
-            const isHLS = station.hls === 1 || 
-                         (station.url && station.url.includes('.m3u8')) ||
-                         (station.url_resolved && station.url_resolved.includes('.m3u8'));
             
             // Set a shorter audio buffer for faster startup
             if (this.audioContext) {
@@ -929,27 +897,17 @@ class RadioWaveApp {
             let primaryUrl = station.url;
             let fallbackUrl = station.url_resolved;
             
-            // If it's an HLS stream, prioritize it for supported browsers
-            if (isHLS) {
-                if (station.url && station.url.includes('.m3u8')) {
-                    primaryUrl = station.url;
-                } else if (station.url_resolved && station.url_resolved.includes('.m3u8')) {
-                    primaryUrl = station.url_resolved;
-                }
-            }
-            // Otherwise use preload info if available
-            else if (preloadInfo && preloadInfo.status === 'ready' && preloadInfo.preferResolved) {
+            if (preloadInfo && preloadInfo.status === 'ready' && preloadInfo.preferResolved) {
                 // Swap URLs if preloading found resolved URL works better
                 primaryUrl = station.url_resolved;
                 fallbackUrl = station.url;
             }
             
-            // Check URLs for file extensions to ensure compatibility
-            if (primaryUrl && !this.isUrlLikelyCompatible(primaryUrl) && 
-                fallbackUrl && this.isUrlLikelyCompatible(fallbackUrl)) {
-                // Swap if primary URL doesn't seem compatible but fallback does
-                [primaryUrl, fallbackUrl] = [fallbackUrl, primaryUrl];
-            }
+            // Set the source and play
+            this.audioElement.src = primaryUrl;
+            
+            // Try to initiate playback faster by setting src and calling load before play
+            this.audioElement.load();
             
             console.log('Starting playback with URL:', primaryUrl);
             
@@ -961,230 +919,31 @@ class RadioWaveApp {
                 console.log('Failed to count click:', clickError);
             }
             
-            // Check if this is an HLS stream and handle accordingly
-            if (isHLS) {
-                this.playHlsStream(primaryUrl, fallbackUrl, playbackTimeout);
-            } else {
-                // Set the source and play normal stream
-                this.audioElement.src = primaryUrl;
-                
-                // Try to initiate playback faster by setting src and calling load before play
-                this.audioElement.load();
-                
-                // Start playing
-                const playPromise = this.audioElement.play();
-                
-                if (playPromise !== undefined) {
-                    playPromise.then(() => {
-                        clearTimeout(playbackTimeout);
-                        this.isPlaying = true;
-                        this.updatePlayerState();
-                        this.updateMediaSession(); // Update media session with current station
-                        this.hideLoading();
-                        
-                        // Preload next station for faster switching
-                        this.preloadNextStation();
-                    }).catch(error => {
-                        clearTimeout(playbackTimeout);
-                        console.error('Error playing audio:', error);
-                        
-                        // Try alternative URL if available
-                        this.tryAlternativeUrl(station);
-                    });
-                }
+            // Start playing
+            const playPromise = this.audioElement.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    clearTimeout(playbackTimeout);
+                    this.isPlaying = true;
+                    this.updatePlayerState();
+                    this.updateMediaSession(); // Update media session with current station
+                    this.hideLoading();
+                    
+                    // Preload next station for faster switching
+                    this.preloadNextStation();
+                }).catch(error => {
+                    clearTimeout(playbackTimeout);
+                    console.error('Error playing audio:', error);
+                    
+                    // Try alternative URL if available
+                    this.tryAlternativeUrl(station);
+                });
             }
         } catch (error) {
             console.error('Error setting up audio:', error);
             this.handleAudioError();
         }
-    }
-    
-    playHlsStream(primaryUrl, fallbackUrl, playbackTimeout) {
-        // Check if we need to use HLS.js or native HLS support
-        const hasNativeHLS = !!this.audioElement.canPlayType('application/vnd.apple.mpegurl').replace(/no/, '');
-        
-        if (hasNativeHLS) {
-            console.log('Using native HLS support');
-            this.audioElement.src = primaryUrl;
-            this.audioElement.load();
-            
-            const playPromise = this.audioElement.play();
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    clearTimeout(playbackTimeout);
-                    this.isPlaying = true;
-                    this.updatePlayerState();
-                    this.updateMediaSession();
-                    this.hideLoading();
-                    this.preloadNextStation();
-                }).catch(error => {
-                    clearTimeout(playbackTimeout);
-                    console.error('Error playing HLS with native support:', error);
-                    
-                    // Try HLS.js as a fallback if available
-                    if (window.Hls && Hls.isSupported()) {
-                        console.log('Falling back to HLS.js after native failure');
-                        this.setupHlsJs(primaryUrl, fallbackUrl, playbackTimeout);
-                    } else {
-                        this.tryAlternativeUrl(this.currentStation);
-                    }
-                });
-            }
-        } 
-        // Use HLS.js if available
-        else if (window.Hls && Hls.isSupported()) {
-            console.log('Using HLS.js for HLS playback');
-            this.setupHlsJs(primaryUrl, fallbackUrl, playbackTimeout);
-        } 
-        // Neither native support nor HLS.js available, try direct playback
-        else {
-            console.log('No HLS support available, trying direct playback');
-            this.audioElement.src = primaryUrl;
-            this.audioElement.load();
-            
-            const playPromise = this.audioElement.play();
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    clearTimeout(playbackTimeout);
-                    this.isPlaying = true;
-                    this.updatePlayerState();
-                    this.updateMediaSession();
-                    this.hideLoading();
-                    this.preloadNextStation();
-                }).catch(error => {
-                    clearTimeout(playbackTimeout);
-                    console.error('Error playing HLS without support:', error);
-                    this.tryAlternativeUrl(this.currentStation);
-                });
-            }
-        }
-    }
-    
-    setupHlsJs(url, fallbackUrl, playbackTimeout) {
-        try {
-            // Destroy any existing instance
-            this.destroyHlsInstance();
-            
-            // Create a new HLS.js instance
-            this.hlsPlayer = new Hls({
-                maxBufferLength: 30,
-                maxMaxBufferLength: 60,
-                enableWorker: true,
-                lowLatencyMode: true
-            });
-            
-            // Bind HLS.js to the audio element
-            this.hlsPlayer.attachMedia(this.audioElement);
-            
-            // Events
-            this.hlsPlayer.on(Hls.Events.MEDIA_ATTACHED, () => {
-                console.log('HLS.js attached to audio element');
-                this.hlsPlayer.loadSource(url);
-            });
-            
-            this.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-                console.log('HLS manifest parsed, found ' + data.levels.length + ' quality levels');
-                
-                // Start playback
-                const playPromise = this.audioElement.play();
-                
-                if (playPromise !== undefined) {
-                    playPromise.then(() => {
-                        clearTimeout(playbackTimeout);
-                        this.isPlaying = true;
-                        this.updatePlayerState();
-                        this.updateMediaSession();
-                        this.hideLoading();
-                        this.preloadNextStation();
-                    }).catch(error => {
-                        clearTimeout(playbackTimeout);
-                        console.error('Error playing with HLS.js:', error);
-                        
-                        // Try fallback URL directly
-                        if (fallbackUrl && fallbackUrl !== url) {
-                            console.log('Trying fallback URL after HLS.js failure');
-                            this.destroyHlsInstance();
-                            this.audioElement.src = fallbackUrl;
-                            this.audioElement.load();
-                            this.audioElement.play().catch(err => {
-                                console.error('Fallback URL also failed:', err);
-                                this.handleAudioError();
-                            });
-                        } else {
-                            this.handleAudioError();
-                        }
-                    });
-                }
-            });
-            
-            // Error handling
-            this.hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    console.error('Fatal HLS.js error:', data.type, data.details);
-                    
-                    switch(data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            // Try to recover network error
-                            console.log('Fatal network error, trying to recover');
-                            this.hlsPlayer.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log('Fatal media error, trying to recover');
-                            this.hlsPlayer.recoverMediaError();
-                            break;
-                        default:
-                            // Cannot recover, try alternative URL
-                            this.destroyHlsInstance();
-                            this.tryAlternativeUrl(this.currentStation);
-                            break;
-                    }
-                } else {
-                    console.warn('Non-fatal HLS.js error:', data.type, data.details);
-                }
-            });
-        } catch (error) {
-            console.error('Error setting up HLS.js:', error);
-            // Fall back to direct URL playback
-            this.audioElement.src = url;
-            this.audioElement.load();
-            this.audioElement.play().catch(err => {
-                console.error('Direct playback also failed:', err);
-                this.handleAudioError();
-            });
-        }
-    }
-    
-    destroyHlsInstance() {
-        if (this.hlsPlayer) {
-            console.log('Destroying HLS.js instance');
-            this.hlsPlayer.destroy();
-            this.hlsPlayer = null;
-        }
-    }
-    
-    isUrlLikelyCompatible(url) {
-        if (!url) return false;
-        
-        const lowerUrl = url.toLowerCase();
-        
-        // Check for direct audio file extensions
-        if (lowerUrl.endsWith('.mp3') && this.supportedFormats.mp3) return true;
-        if (lowerUrl.endsWith('.aac') && this.supportedFormats.aac) return true;
-        if (lowerUrl.endsWith('.ogg') && this.supportedFormats.ogg) return true;
-        if (lowerUrl.endsWith('.opus') && this.supportedFormats.opus) return true;
-        if (lowerUrl.endsWith('.flac') && this.supportedFormats.flac) return true;
-        
-        // Check for streaming formats
-        if ((lowerUrl.endsWith('.m3u8') || lowerUrl.includes('playlist.m3u')) && this.supportedFormats.hls) return true;
-        
-        // Check for streaming servers
-        if (lowerUrl.includes('icecast') || lowerUrl.includes('shoutcast')) return true;
-        
-        // Look for common streaming patterns
-        if (lowerUrl.includes('/stream') || lowerUrl.includes('/live')) return true;
-        
-        // Unknown format - might still work
-        return false;
     }
     
     setupAudioErrorHandling(station, playbackTimeout) {
@@ -1377,10 +1136,50 @@ class RadioWaveApp {
     }
 
     async playLocalMusic(song) {
-        this.currentStation = { ...song, type: 'local' };
-        this.audioElement.src = song.url;
-        
         try {
+            // Make sure song ID is stored as a string for comparison
+            const songId = String(song.id);
+            
+            // If the song was saved to the file system, try to access it
+            if (song.savedToFileSystem && song.filePath && this.hasFileSystemAccess) {
+                try {
+                    const folderHandle = await this.getMusicFolder();
+                    if (folderHandle) {
+                        const fileName = song.filePath.split('/').pop();
+                        try {
+                            const fileHandle = await folderHandle.getFileHandle(fileName);
+                            const file = await fileHandle.getFile();
+                            
+                            // Create a temporary URL for the file
+                            const url = URL.createObjectURL(file);
+                            
+                            this.currentStation = { ...song, type: 'local', id: songId };
+                            this.audioElement.src = url;
+                            
+                            // Store the URL to revoke it later
+                            this.currentStation.tempUrl = url;
+                            
+                            await this.audioElement.play();
+                            this.isPlaying = true;
+                            this.updatePlayerUI();
+                            this.updateMusicCards();
+                            this.updateNowPlayingIndicator();
+                            return;
+                        } catch (err) {
+                            console.warn('Could not access file from filesystem:', err);
+                            // Fall back to data URL method
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Error accessing music folder:', err);
+                    // Fall back to data URL method
+                }
+            }
+            
+            // Fall back to the stored URL (data URL) method
+            this.currentStation = { ...song, type: 'local', id: songId };
+            this.audioElement.src = song.url;
+            
             await this.audioElement.play();
             this.isPlaying = true;
             this.updatePlayerUI();
@@ -1548,7 +1347,40 @@ class RadioWaveApp {
         
         if (this.currentStation.type !== 'radio') return;
         
+        // Toggle the favorite status
         this.toggleStationFavorite(this.currentStation);
+        
+        // Update the favorite button in the top player UI
+        const favoriteBtn = document.getElementById('favoriteBtn');
+        const isFavorite = this.favorites.some(fav => 
+            (fav.stationuuid && this.currentStation.stationuuid && 
+             fav.stationuuid === this.currentStation.stationuuid) || 
+            (fav.uuid && this.currentStation.uuid && 
+             fav.uuid === this.currentStation.uuid)
+        );
+        
+        if (favoriteBtn) {
+            favoriteBtn.innerHTML = isFavorite 
+                ? '<i class="fas fa-heart"></i>' 
+                : '<i class="far fa-heart"></i>';
+        }
+        
+        // Update landscape favorite button if it exists
+        const landscapeFavoriteBtn = document.getElementById('landscapeFavoriteBtn');
+        if (landscapeFavoriteBtn) {
+            const favoriteIcon = landscapeFavoriteBtn.querySelector('i');
+            const favoriteText = landscapeFavoriteBtn.querySelector('span');
+            
+            if (favoriteIcon) {
+                favoriteIcon.className = isFavorite 
+                    ? 'fas fa-heart' 
+                    : 'far fa-heart';
+            }
+            
+            if (favoriteText) {
+                favoriteText.textContent = isFavorite ? 'Favorited' : 'Favorite';
+            }
+        }
     }
 
     toggleStationFavorite(station) {
@@ -1573,6 +1405,9 @@ class RadioWaveApp {
             (fav.uuid && fav.uuid === stationId)
         );
         
+        // Find any related favorite buttons for this station
+        const favoriteButtons = document.querySelectorAll(`.station-card[data-station-id="${stationId}"] .favorite-btn`);
+        
         if (index === -1) {
             // Not a favorite yet, add it
             // Make sure station has type property set
@@ -1580,9 +1415,21 @@ class RadioWaveApp {
                 station.type = 'radio';
             }
             this.favorites.push(station);
+            
+            // Update button states
+            favoriteButtons.forEach(btn => {
+                btn.classList.add('active');
+                btn.title = 'Remove from favorites';
+            });
         } else {
             // Already a favorite, remove it
             this.favorites.splice(index, 1);
+            
+            // Update button states
+            favoriteButtons.forEach(btn => {
+                btn.classList.remove('active');
+                btn.title = 'Add to favorites';
+            });
         }
         
         // Save to localStorage
@@ -1619,25 +1466,131 @@ class RadioWaveApp {
         }
     }
 
+    async checkFileSystemAccess() {
+        // Check if the File System Access API is supported
+        if ('showDirectoryPicker' in window) {
+            this.hasFileSystemAccess = true;
+            
+            try {
+                // Try to get persisted permission from previous sessions
+                const musicFolderKey = 'radiowave_music_folder';
+                const storedPermission = await navigator.permissions?.query({
+                    name: 'persistent-storage'
+                });
+                
+                if (storedPermission?.state === 'granted' && localStorage.getItem(musicFolderKey)) {
+                    try {
+                        const fileHandleToken = localStorage.getItem(musicFolderKey);
+                        if (fileHandleToken) {
+                            // If we have a stored handle, try to use it
+                            console.log('Attempting to use stored file handle');
+                        }
+                    } catch (err) {
+                        console.log('Could not reuse file handle:', err);
+                    }
+                }
+            } catch (err) {
+                console.log('File System Permission check error:', err);
+            }
+            
+            console.log('File System Access API is supported');
+        } else {
+            this.hasFileSystemAccess = false;
+            console.log('File System Access API is not supported');
+        }
+    }
+
+    async getMusicFolder() {
+        if (!this.hasFileSystemAccess) {
+            console.log('File System Access API not supported');
+            return null;
+        }
+        
+        try {
+            if (!this.musicFolderHandle) {
+                // Show directory picker to let user choose where to save music
+                const dirHandle = await window.showDirectoryPicker({
+                    id: 'radioWaveMusicDir',
+                    mode: 'readwrite',
+                    startIn: 'music'
+                });
+                
+                // Create a RadioWave_Music subfolder
+                try {
+                    this.musicFolderHandle = await dirHandle.getDirectoryHandle(
+                        this.musicFolderName, 
+                        { create: true }
+                    );
+                    
+                    console.log('Music folder created/accessed successfully');
+                    
+                    // Try to persist permission
+                    if (navigator.storage && navigator.storage.persist) {
+                        const isPersisted = await navigator.storage.persist();
+                        console.log(`Persisted storage permission: ${isPersisted}`);
+                    }
+                } catch (err) {
+                    console.error('Error creating music subfolder:', err);
+                    // Fallback to use the main directory if subfolder can't be created
+                    this.musicFolderHandle = dirHandle;
+                }
+            }
+            
+            return this.musicFolderHandle;
+        } catch (err) {
+            console.error('Error accessing music folder:', err);
+            return null;
+        }
+    }
+
     handleFileUpload(event) {
         const files = event.dataTransfer ? event.dataTransfer.files : event.target.files;
         
-        Array.from(files).forEach(file => {
-            if (file.type.startsWith('audio/')) {
-                this.addLocalMusic(file);
-            }
+        // Filter only MP3 files
+        const mp3Files = Array.from(files).filter(file => 
+            file.type === 'audio/mp3' || file.name.toLowerCase().endsWith('.mp3')
+        );
+        
+        if (mp3Files.length === 0) {
+            this.showError('Only MP3 files are supported');
+            this.hideUploadModal();
+            return;
+        }
+        
+        // Process each MP3 file
+        mp3Files.forEach(file => {
+            this.addLocalMusic(file);
         });
         
         this.hideUploadModal();
     }
 
-    addLocalMusic(file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
+    async addLocalMusic(file) {
+        try {
+            // First try to save to file system if supported
+            let fileUrl = '';
+            let savedToFileSystem = false;
+            
+            if (this.hasFileSystemAccess) {
+                savedToFileSystem = await this.saveFileToMusicFolder(file);
+            }
+            
+            if (!savedToFileSystem) {
+                // Fallback to DataURL method if file system access fails
+                fileUrl = await this.readFileAsDataURL(file);
+            } else {
+                // Use the file reference for files saved to the file system
+                fileUrl = `filesystem:${this.musicFolderName}/${file.name}`;
+            }
+            
+            // Create song object with string ID
+            const songId = String(Date.now() + Math.random());
             const song = {
-                id: Date.now() + Math.random(),
+                id: songId,
                 name: file.name.replace(/\.[^/.]+$/, ""),
-                url: e.target.result,
+                url: fileUrl,
+                filePath: savedToFileSystem ? `${this.musicFolderName}/${file.name}` : null,
+                savedToFileSystem: savedToFileSystem,
                 size: this.formatFileSize(file.size),
                 type: 'local'
             };
@@ -1645,24 +1598,133 @@ class RadioWaveApp {
             this.myMusic.push(song);
             localStorage.setItem('radiowave_music', JSON.stringify(this.myMusic));
             this.renderMyMusic();
-        };
-        reader.readAsDataURL(file);
-    }
-
-    deleteLocalMusic(songId) {
-        if (confirm('Delete this song?')) {
-            this.myMusic = this.myMusic.filter(song => song.id !== songId);
-            localStorage.setItem('radiowave_music', JSON.stringify(this.myMusic));
-            this.renderMyMusic();
             
-            // Stop playing if this song is currently playing
-            if (this.currentStation && this.currentStation.id === songId) {
-                this.audioElement.pause();
-                this.currentStation = null;
-                this.isPlaying = false;
-                this.updatePlayerUI();
+            // Show success message
+            this.showSuccessToast(`Added "${song.name}" to My Music`);
+        } catch (error) {
+            console.error('Error adding local music:', error);
+            this.showError(`Failed to add "${file.name}": ${error.message}`);
+        }
+    }
+    
+    readFileAsDataURL(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+        });
+    }
+    
+    async saveFileToMusicFolder(file) {
+        try {
+            const folderHandle = await this.getMusicFolder();
+            if (!folderHandle) return false;
+            
+            // Create a new file in the directory
+            const fileHandle = await folderHandle.getFileHandle(file.name, { create: true });
+            
+            // Create a writable stream
+            const writable = await fileHandle.createWritable();
+            
+            // Write the file content
+            await writable.write(file);
+            
+            // Close the stream
+            await writable.close();
+            
+            console.log(`File ${file.name} saved to ${this.musicFolderName} folder`);
+            return true;
+        } catch (error) {
+            console.error('Error saving file to music folder:', error);
+            return false;
+        }
+    }
+    
+    async deleteLocalMusic(songId) {
+        if (confirm('Delete this song?')) {
+            // Ensure songId is a string for comparison
+            songId = String(songId);
+            const songIndex = this.myMusic.findIndex(song => String(song.id) === songId);
+            
+            if (songIndex !== -1) {
+                const song = this.myMusic[songIndex];
+                
+                // Try to delete the file from the file system if it was saved there
+                if (song.savedToFileSystem && song.filePath && this.hasFileSystemAccess) {
+                    try {
+                        const folderHandle = await this.getMusicFolder();
+                        if (folderHandle) {
+                            const fileName = song.filePath.split('/').pop();
+                            try {
+                                await folderHandle.removeEntry(fileName);
+                                console.log(`File ${fileName} deleted from file system`);
+                            } catch (err) {
+                                console.warn('Could not delete file from filesystem:', err);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('Error accessing music folder for deletion:', err);
+                    }
+                }
+                
+                // If this is the currently playing song, clean up
+                if (this.currentStation && String(this.currentStation.id) === songId) {
+                    // Revoke any temporary URL
+                    if (this.currentStation.tempUrl) {
+                        URL.revokeObjectURL(this.currentStation.tempUrl);
+                    }
+                    
+                    this.audioElement.pause();
+                    this.currentStation = null;
+                    this.isPlaying = false;
+                    this.updatePlayerUI();
+                }
+                
+                // Remove from array and update storage
+                this.myMusic.splice(songIndex, 1);
+                localStorage.setItem('radiowave_music', JSON.stringify(this.myMusic));
+                this.renderMyMusic();
+                
+                // Show confirmation
+                this.showSuccessToast('Song deleted successfully');
             }
         }
+    }
+    
+    showSuccessToast(message) {
+        // Create a toast notification
+        const toast = document.createElement('div');
+        toast.className = 'success-toast';
+        toast.innerHTML = `
+            <div class="success-icon"><i class="fas fa-check-circle"></i></div>
+            <div class="success-message">${message}</div>
+            <button class="success-close">&times;</button>
+        `;
+        
+        // Add to body
+        document.body.appendChild(toast);
+        
+        // Show with animation
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 10);
+        
+        // Auto hide after 3 seconds
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300); // Wait for animation to complete
+        }, 3000);
+        
+        // Close button
+        toast.querySelector('.success-close').addEventListener('click', () => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300);
+        });
     }
 
     switchSection(sectionName) {
@@ -1767,7 +1829,7 @@ class RadioWaveApp {
             const songId = card.dataset.songId;
             const playBtn = card.querySelector('.play-btn i');
             
-            if (this.currentStation && this.currentStation.id === songId) {
+            if (this.currentStation && String(this.currentStation.id) === String(songId)) {
                 card.classList.add('active');
                 playBtn.className = this.isPlaying ? 'fas fa-pause' : 'fas fa-play';
             } else {
@@ -1783,6 +1845,81 @@ class RadioWaveApp {
         this.updateMusicCards();
     }
 
+    showError(message) {
+        console.error(message);
+        
+        // Create a toast notification instead of alert
+        const toast = document.createElement('div');
+        toast.className = 'error-toast';
+        toast.innerHTML = `
+            <div class="error-icon"><i class="fas fa-exclamation-circle"></i></div>
+            <div class="error-message">${message}</div>
+            <button class="error-close">&times;</button>
+        `;
+        
+        // Add to body
+        document.body.appendChild(toast);
+        
+        // Show with animation
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 10);
+        
+        // Auto hide after 5 seconds
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300); // Wait for animation to complete
+        }, 5000);
+        
+        // Close button
+        toast.querySelector('.error-close').addEventListener('click', () => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300);
+        });
+    }
+    
+    handleAudioError() {
+        this.isPlaying = false;
+        this.hideLoading();
+        
+        // Check if we have a current station to provide more context
+        let errorMessage = '';
+        
+        if (this.currentStation) {
+            errorMessage += `"${this.currentStation.name}" might be offline or unavailable.`;
+            
+            // Check if the station URL might have been blocked by CORS
+            if (this.currentStation.url && (
+                this.currentStation.url.includes('http:') || 
+                this.currentStation.url.includes('https://www.radio.net') ||
+                this.currentStation.url.includes('https://www.franceinter.fr')
+            )) {
+            }
+        } else {
+            errorMessage += ' Please select a station to play.';
+        }
+        
+        this.showError(errorMessage);
+        this.updatePlayerState();
+    }
+    
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    debounce(func, wait) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(func, wait);
+    }
+    
     setVolume(value) {
         // Ensure value is between 0 and 100
         const volumeValue = Math.max(0, Math.min(100, value));
@@ -1912,7 +2049,7 @@ class RadioWaveApp {
             return false;
         }
     }
-
+    
     showVolumeHint() {
         // Create volume hint message if it doesn't exist
         let hint = document.getElementById('volume-hint');
@@ -1961,12 +2098,12 @@ class RadioWaveApp {
             }, 300);
         }, 4000);
     }
-
+    
     updateVolumeIcon(value) {
         const iconClass = value === 0 ? 'fa-volume-mute' : 
-                         value < 30 ? 'fa-volume-off' : 
-                         value < 70 ? 'fa-volume-down' : 
-                         'fa-volume-up';
+                        value < 30 ? 'fa-volume-off' : 
+                        value < 70 ? 'fa-volume-down' : 
+                        'fa-volume-up';
         
         // Update top volume icon if exists
         const volumeIcon = document.getElementById('volumeIcon');
@@ -1980,7 +2117,7 @@ class RadioWaveApp {
             landscapeVolumeIcon.className = `fas ${iconClass}`;
         }
     }
-
+    
     toggleVolumeModal() {
         const modal = document.getElementById('volumeModal');
         modal.classList.toggle('show');
@@ -1991,128 +2128,35 @@ class RadioWaveApp {
             }
         }, 3000);
     }
-
+    
     showUploadModal() {
         document.getElementById('uploadModal').classList.add('show');
     }
-
+    
     hideUploadModal() {
         document.getElementById('uploadModal').classList.remove('show');
     }
-
+    
     showLoading() {
         // Loading indicator is handled by CSS
     }
-
+    
     hideLoading() {
         // Loading indicator is handled by CSS
     }
-
-    showError(message) {
-        console.error(message);
-        
-        // Create a toast notification instead of alert
-        const toast = document.createElement('div');
-        toast.className = 'error-toast';
-        toast.innerHTML = `
-            <div class="error-icon"><i class="fas fa-exclamation-circle"></i></div>
-            <div class="error-message">${message}</div>
-            <button class="error-close">&times;</button>
-        `;
-        
-        // Add to body
-        document.body.appendChild(toast);
-        
-        // Show with animation
-        setTimeout(() => {
-            toast.classList.add('show');
-        }, 10);
-        
-        // Auto hide after 5 seconds
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => {
-                document.body.removeChild(toast);
-            }, 300); // Wait for animation to complete
-        }, 5000);
-        
-        // Close button
-        toast.querySelector('.error-close').addEventListener('click', () => {
-            toast.classList.remove('show');
-            setTimeout(() => {
-                document.body.removeChild(toast);
-            }, 300);
-        });
-    }
-
-    handleAudioError() {
-        this.isPlaying = false;
-        this.hideLoading();
-        
-        // Check if we have a current station to provide more context
-        let errorMessage = 'Audio playback error.';
-        
-        if (this.currentStation) {
-            // Check codec compatibility
-            const codec = (this.currentStation.codec || '').toUpperCase();
-            const isCompatibleCodec = 
-                (codec.includes('MP3') && this.supportedFormats.mp3) ||
-                ((codec.includes('AAC') || codec.includes('AAC+')) && this.supportedFormats.aac) ||
-                (codec.includes('OGG') && this.supportedFormats.ogg) ||
-                (codec.includes('OPUS') && this.supportedFormats.opus) ||
-                (codec.includes('FLAC') && this.supportedFormats.flac);
-            
-            // Different message based on codec compatibility
-            if (!isCompatibleCodec && codec) {
-                errorMessage = `Your browser doesn't support the ${codec} format used by "${this.currentStation.name}". Try another station.`;
-            } else {
-                errorMessage += ` The station "${this.currentStation.name}" might be offline or unavailable.`;
-            }
-            
-            // Check if the station URL might have been blocked by CORS
-            if (this.currentStation.url && (
-                this.currentStation.url.includes('http:') || 
-                this.currentStation.url.includes('https://www.radio.net') ||
-                this.currentStation.url.includes('https://www.franceinter.fr')
-            )) {
-                errorMessage += ' Access might be restricted due to security policies.';
-            }
-            
-            // Add retry hint
-            errorMessage += ' Try again later or select a different station.';
-        } else {
-            errorMessage += ' Please select a station to play.';
-        }
-        
-        this.showError(errorMessage);
-        this.updatePlayerState();
-    }
-
-    formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    debounce(func, wait) {
-        clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(func, wait);
-    }
-
+    
     setupOrientationHandling() {
         // Listen for orientation changes
         window.addEventListener('orientationchange', () => {
             // Delay check to allow for transition
             setTimeout(() => this.checkOrientation(), 200);
         });
-
+        
         // Listen for resize events (for desktop testing)
         window.addEventListener('resize', () => {
             this.debounce(() => this.checkOrientation(), 100);
         });
-
+        
         // Listen for screen orientation API if available
         if (screen.orientation) {
             screen.orientation.addEventListener('change', () => {
@@ -2120,7 +2164,7 @@ class RadioWaveApp {
             });
         }
     }
-
+    
     checkOrientation() {
         const isLandscapeNow = this.isLandscapeMode();
         
@@ -2129,7 +2173,7 @@ class RadioWaveApp {
             this.handleOrientationChange();
         }
     }
-
+    
     isLandscapeMode() {
         // Check multiple indicators for landscape mode
         const windowAspect = window.innerWidth / window.innerHeight;
@@ -2139,7 +2183,7 @@ class RadioWaveApp {
         
         return isLandscapeBySize || isLandscapeByOrientation;
     }
-
+    
     handleOrientationChange() {
         console.log('Orientation changed to:', this.isLandscape ? 'Landscape' : 'Portrait');
         
@@ -2166,7 +2210,7 @@ class RadioWaveApp {
             }
         }, 300);
     }
-
+    
     enterLandscapeMode() {
         console.log('Entering car mode (landscape)');
         
@@ -2200,7 +2244,7 @@ class RadioWaveApp {
         if (mainContent) {
             mainContent.scrollTop = 0;
         }
-
+        
         // Set initial volume slider value
         const landscapeVolumeSlider = document.getElementById('landscapeVolumeSlider');
         if (landscapeVolumeSlider) {
@@ -2208,7 +2252,7 @@ class RadioWaveApp {
             landscapeVolumeSlider.value = currentVolume;
         }
     }
-
+    
     exitLandscapeMode() {
         console.log('Exiting car mode (portrait)');
         
@@ -2227,7 +2271,7 @@ class RadioWaveApp {
         // Remove landscape class
         document.body.classList.remove('landscape-mode');
     }
-
+    
     updateNowPlayingIndicator() {
         const nowPlayingIndicator = document.getElementById('landscapeNowPlaying');
         if (!nowPlayingIndicator) return;
@@ -2252,7 +2296,7 @@ class RadioWaveApp {
             nowPlayingIndicator.classList.remove('show');
         }
     }
-
+    
     updateLandscapePlayerUI() {
         const landscapePlayPauseBtn = document.getElementById('landscapePlayPauseBtn');
         const landscapeFavoriteBtn = document.getElementById('landscapeFavoriteBtn');
@@ -2310,7 +2354,7 @@ class RadioWaveApp {
             if (favoriteText) favoriteText.textContent = 'Favorite';
         }
     }
-
+    
     updateLandscapeNav() {
         // Get active section
         const activeSection = document.querySelector('.content-section.active')?.id?.replace('-section', '') || 'radio';
@@ -2324,12 +2368,7 @@ class RadioWaveApp {
             }
         });
     }
-
-    // Method no longer needed as we only have the "All" button now and search
-    setFilter(filter) {
-        this.loadStations();
-    }
-
+    
     setupMediaSession() {
         try {
             // Detect iOS
@@ -2402,9 +2441,9 @@ class RadioWaveApp {
         try {
             // Update media session metadata with current playing info
             const title = this.currentStation ? this.currentStation.name : 
-                          this.currentMusic ? this.currentMusic.name : 'RadioWave';
+                        this.currentMusic ? this.currentMusic.name : 'RadioWave';
             const artist = this.currentStation ? 'Radio Station' : 
-                           this.currentMusic ? this.currentMusic.artist || 'Local Music' : 'Tuning...';
+                            this.currentMusic ? this.currentMusic.artist || 'Local Music' : 'Tuning...';
             
             navigator.mediaSession.metadata = new MediaMetadata({
                 title: title,
@@ -2422,21 +2461,198 @@ class RadioWaveApp {
             console.warn('Media session update error:', error);
         }
     }
+
+    setupNetworkDetection() {
+        // Initial online status
+        this.isOnline = navigator.onLine;
+        console.log(`App starting ${this.isOnline ? 'online' : 'offline'}`);
+        
+        // Listen for online status changes
+        window.addEventListener('online', () => {
+            console.log('App is now online');
+            this.isOnline = true;
+            this.showSuccessToast('You are now online. Radio stations available.');
+            
+            // Reload stations if we're in the radio section
+            if (document.getElementById('radio-section').classList.contains('active')) {
+                this.loadStations();
+            }
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('App is now offline');
+            this.isOnline = false;
+            this.showError('You are offline. Radio stations are not available.');
+            
+            // If in radio section, switch to My Music
+            if (document.getElementById('radio-section').classList.contains('active')) {
+                this.switchSection('my-music');
+            }
+        });
+        
+        // Add offline indicator to the UI
+        const appContainer = document.querySelector('.app-container');
+        const offlineIndicator = document.createElement('div');
+        offlineIndicator.className = 'offline-indicator';
+        offlineIndicator.innerHTML = '<i class="fas fa-wifi-slash"></i> Offline Mode';
+        // Check if the icon exists in Font Awesome 6.4.0, if not use alternative
+        setTimeout(() => {
+            const icon = offlineIndicator.querySelector('i');
+            const style = window.getComputedStyle(icon);
+            const fontFamily = style.getPropertyValue('font-family');
+            if (!fontFamily.includes('Font Awesome') || icon.clientWidth === 0) {
+                // Fallback to a standard icon
+                icon.className = 'fas fa-exclamation-triangle';
+            }
+        }, 500);
+        
+        offlineIndicator.style.display = this.isOnline ? 'none' : 'block';
+        appContainer.appendChild(offlineIndicator);
+        
+        // Update indicator when online status changes
+        window.addEventListener('online', () => {
+            offlineIndicator.style.display = 'none';
+        });
+        
+        window.addEventListener('offline', () => {
+            offlineIndicator.style.display = 'block';
+        });
+    }
 }
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.radioWaveApp = new RadioWaveApp();
+    
+    // Add install button after app loads
+    setTimeout(addInstallButton, 2000);
 });
 
 // Handle PWA install prompt
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent Chrome 67 and earlier from automatically showing the prompt
+    e.preventDefault();
+    // Stash the event so it can be triggered later
     deferredPrompt = e;
-    // Could show a custom install button here
+    // Update UI to notify the user they can add to home screen
+    showInstallPromotion();
 });
+
+// Show install promotion UI
+function showInstallPromotion() {
+    // Make sure the install button is visible
+    const installButton = document.getElementById('pwa-install-button');
+    if (installButton) {
+        installButton.style.display = 'block';
+    }
+}
+
+// Add install button to the UI
+function addInstallButton() {
+    // Only add if not already added
+    if (document.getElementById('pwa-install-button')) return;
+    
+    // Create install button
+    const installButton = document.createElement('button');
+    installButton.id = 'pwa-install-button';
+    installButton.className = 'pwa-install-button';
+    installButton.innerHTML = '<i class="fas fa-download"></i> Install App';
+    
+    // Hide by default if no prompt available
+    if (!deferredPrompt) {
+        installButton.style.display = 'none';
+    }
+    
+    // Add click handler
+    installButton.addEventListener('click', installPWA);
+    
+    // Add to body
+    document.body.appendChild(installButton);
+    
+    // Add CSS for the button
+    const style = document.createElement('style');
+    style.textContent = `
+        .pwa-install-button {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 24px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .pwa-install-button i {
+            margin-right: 8px;
+        }
+        @media (max-width: 768px) {
+            .pwa-install-button {
+                bottom: 80px;
+                right: 16px;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// Install PWA function
+function installPWA() {
+    // Hide install promotion
+    const installButton = document.getElementById('pwa-install-button');
+    if (installButton) {
+        installButton.style.display = 'none';
+    }
+    
+    // Show the install prompt
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        
+        // Wait for the user to respond to the prompt
+        deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+                console.log('User accepted the install prompt');
+                // Show success message
+                const toast = document.createElement('div');
+                toast.className = 'success-toast';
+                toast.innerHTML = `
+                    <div class="success-icon"><i class="fas fa-check-circle"></i></div>
+                    <div class="success-message">App installation started!</div>
+                `;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => document.body.removeChild(toast), 300);
+                }, 3000);
+            } else {
+                console.log('User dismissed the install prompt');
+            }
+            // Clear the saved prompt since it can't be used again
+            deferredPrompt = null;
+        });
+    } else {
+        // If no deferred prompt, show instructions
+        window.radioWaveApp.showError('Please use your browser menu to install this app or add to home screen');
+    }
+}
 
 // Handle app installation
 window.addEventListener('appinstalled', () => {
     console.log('RadioWave PWA was installed');
-}); 
+    // Hide install button after successful installation
+    const installButton = document.getElementById('pwa-install-button');
+    if (installButton) {
+        installButton.style.display = 'none';
+    }
+    
+    // Show success message
+    window.radioWaveApp.showSuccessToast('App installed successfully!');
+});

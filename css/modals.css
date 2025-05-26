@@ -65,6 +65,7 @@
     text-align: center;
     cursor: pointer;
     transition: all 0.3s ease;
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
 .upload-area:hover {
@@ -74,13 +75,22 @@
 
 .upload-area i {
     font-size: 3rem;
-    color: var(--text-secondary);
+    color: var(--primary-color);
     margin-bottom: 1rem;
 }
 
 .upload-area p {
     color: var(--text-secondary);
     font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+}
+
+.upload-area::after {
+    content: "Only MP3 files (.mp3)";
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
 }
 
 .volume-modal {

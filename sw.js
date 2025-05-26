@@ -1,14 +1,19 @@
 // RadioWave PWA Service Worker - GitHub Pages Compatible
-const CACHE_NAME = 'radiowave-v1.0.0';
-const STATIC_CACHE = 'radiowave-static-v1.0.0';
-const DYNAMIC_CACHE = 'radiowave-dynamic-v1.0.0';
+const CACHE_NAME = 'radiowave-v1.2.0';
+const STATIC_CACHE = 'radiowave-static-v1.2.0';
+const DYNAMIC_CACHE = 'radiowave-dynamic-v1.2.0';
 
 const STATIC_FILES = [
     './',
     './index.html',
     './styles.css',
+    './css/index.css',
+    './css/ios-fixes.css',
+    './css/fallback/fontawesome.min.css',
     './app.js',
     './manifest.json',
+    './icons/icon-192x192.png',
+    './icons/icon-512x512.png',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
 
@@ -137,6 +142,36 @@ function handleOfflineResponse(request) {
     if (request.mode === 'navigate') {
         return caches.match('./index.html') || caches.match('/index.html');
     }
+    
+    // For API requests, return a proper offline response
+    if (request.url.includes('api.radio-browser.info')) {
+        return new Response(
+            JSON.stringify({
+                error: 'Offline',
+                message: 'You are currently offline'
+            }),
+            {
+                status: 503,
+                statusText: 'Service Unavailable',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+    }
+    
+    // For font-awesome and other CDN resources, try fallback
+    if (request.url.includes('cdnjs.cloudflare.com')) {
+        return caches.match('./index.html')
+            .then(response => {
+                if (response) return response;
+                return new Response('/* Offline fallback */', {
+                    headers: { 'Content-Type': 'text/css' }
+                });
+            });
+    }
+    
+    // Default fallback
     return new Response(
         JSON.stringify({
             error: 'Offline',

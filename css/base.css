@@ -23,6 +23,7 @@ button {
     --border-color: #404040;
     --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     --gradient: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
+    --heart-color: #f06292;
     --top-player-height: 80px;
     --nav-height: 70px;
     --header-height: 60px;
