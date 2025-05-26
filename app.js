@@ -2559,13 +2559,34 @@ function addInstallButton() {
     installButton.className = 'pwa-install-button';
     installButton.innerHTML = '<i class="fas fa-download"></i> Install App';
     
-    // Hide by default if no prompt available
-    if (!deferredPrompt) {
-        installButton.style.display = 'none';
-    }
+    // Always show the button
+    installButton.style.display = 'block';
     
-    // Add click handler
-    installButton.addEventListener('click', installPWA);
+    // Add click handler - if no prompt, show instructions
+    installButton.addEventListener('click', () => {
+        if (deferredPrompt) {
+            installPWA();
+        } else {
+            // Show browser-specific installation instructions
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            const isFirefox = navigator.userAgent.includes('Firefox');
+            const isChrome = navigator.userAgent.includes('Chrome');
+            
+            let message = '';
+            
+            if (isIOS) {
+                message = 'To install: tap the share icon and select "Add to Home Screen"';
+            } else if (isFirefox) {
+                message = 'To install: click the three dots (≡) in the address bar and select "Install"';
+            } else if (isChrome) {
+                message = 'To install: click the three dots (⋮) menu and select "Install RadioWave"';
+            } else {
+                message = 'To install: use your browser menu to add this app to your home screen';
+            }
+            
+            window.radioWaveApp.showError(message);
+        }
+    });
     
     // Add to body
     document.body.appendChild(installButton);
